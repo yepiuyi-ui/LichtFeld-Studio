@@ -158,6 +158,8 @@ namespace lfs::vis::gui {
             return;
 
         ImGuiIO& io = ImGui::GetIO();
+        if (io.WantCaptureMouse)
+            return;
         float mx = io.MousePos.x - vp_pos_.x;
         float my = io.MousePos.y - vp_pos_.y;
         const int rml_mx = static_cast<int>(mx);

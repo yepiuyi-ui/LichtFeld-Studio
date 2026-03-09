@@ -460,7 +460,6 @@ namespace lfs::vis::gui {
             dropdown_overlay_->SetClass("visible", false);
 
         syncActiveLabelState();
-        wants_input_ = false;
         render_needed_ = true;
     }
 

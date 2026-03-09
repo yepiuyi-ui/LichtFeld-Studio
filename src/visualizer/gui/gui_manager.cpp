@@ -1592,6 +1592,9 @@ namespace lfs::vis::gui {
     }
 
     void GuiManager::updateInputOverrides(bool mouse_in_viewport) {
+        if (rml_menu_bar_.wantsInput())
+            return;
+
         const bool any_popup_or_modal_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
         const bool imgui_wants_input = ImGui::GetIO().WantTextInput || ImGui::GetIO().WantCaptureKeyboard;
 
