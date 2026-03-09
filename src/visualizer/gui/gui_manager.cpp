@@ -661,7 +661,13 @@ namespace lfs::vis::gui {
                                     std::string(name), std::string(rml));
         };
         ops.destroy = [](void* host) {
-            delete static_cast<RmlPanelHost*>(host);
+            if (lfs::python::on_gl_thread()) {
+                delete static_cast<RmlPanelHost*>(host);
+            } else {
+                lfs::python::schedule_gl_callback([host]() {
+                    delete static_cast<RmlPanelHost*>(host);
+                });
+            }
         };
         ops.draw = [](void* host, const void* ctx) {
             auto* h = static_cast<RmlPanelHost*>(host);
