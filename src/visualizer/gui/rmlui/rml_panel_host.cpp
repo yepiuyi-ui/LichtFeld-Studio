@@ -116,14 +116,6 @@ namespace lfs::vis::gui {
     using rml_theme::colorToRmlAlpha;
 
     namespace {
-        ImVec4 brighten(const ImVec4& color, float factor) {
-            return {
-                color.x + (1.0f - color.x) * factor,
-                color.y + (1.0f - color.y) * factor,
-                color.z + (1.0f - color.z) * factor,
-                color.w};
-        }
-
         bool pointInRoundedRect(const float x, const float y, const float w, const float h,
                                 const Rml::CornerSizes& radii) {
             if (x < 0.0f || y < 0.0f || x >= w || y >= h)
@@ -218,8 +210,8 @@ namespace lfs::vis::gui {
         const auto row_hover = colorToRmlAlpha(p.primary, 0.12f);
         const auto row_hover_border = colorToRml(p.primary);
         const auto row_hover_border_selected = colorToRml(p.primary_dim);
-        const auto row_selected = colorToRml(brighten(p.primary, 0.14f));
-        const auto row_selected_hover = colorToRml(brighten(p.primary, 0.24f));
+        const auto row_selected = colorToRmlAlpha(p.primary, 0.28f);
+        const auto row_selected_hover = colorToRmlAlpha(p.primary, 0.38f);
 
         return std::format(
             "body {{ color: {0}; background-color: {12}; }}\n"
