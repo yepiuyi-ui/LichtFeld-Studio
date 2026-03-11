@@ -37,7 +37,7 @@ namespace {
                 result.error.find("Failed to create venv for black") != std::string::npos ||
                 result.error.find("ImportError") != std::string::npos);
     }
-}
+} // namespace
 
 TEST_F(PythonIntegrationTest, InitializationSucceeds) {
     // Just verify that initialization doesn't throw

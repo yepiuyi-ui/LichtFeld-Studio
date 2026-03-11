@@ -23,97 +23,86 @@ __declspec(dllimport) void __stdcall OutputDebugStringA(_In_opt_ const char* psz
 
 #undef ERROR
 
-namespace Zep
-{
+namespace Zep {
 
-enum class ZLT
-{
-    NONE,
-    DBG,
-    INFO,
-    WARNING,
-    ERROR,
-    ALWAYS
-};
+    enum class ZLT {
+        NONE,
+        DBG,
+        INFO,
+        WARNING,
+        ERROR,
+        ALWAYS
+    };
 
-struct ZLogger
-{
-    bool headers = false;
-    ZLT level = ZLT::WARNING;
-};
+    struct ZLogger {
+        bool headers = false;
+        ZLT level = ZLT::WARNING;
+    };
 
-extern ZLogger logger;
+    extern ZLogger logger;
 
-class ZLog
-{
-public:
-    ZLog()
-    {
-    }
-    ZLog(ZLT type)
-    {
-        msglevel = type;
-        if (logger.headers && msglevel >= logger.level)
-        {
-            operator<<("[" + getLabel(type) + "] ");
+    class ZLog {
+    public:
+        ZLog() {
         }
-        out << "(T:" << std::this_thread::get_id() << ") ";
-    }
-    ~ZLog()
-    {
-        if (opened)
-        {
-            out << std::endl;
+        ZLog(ZLT type) {
+            msglevel = type;
+            if (logger.headers && msglevel >= logger.level) {
+                operator<<("[" + getLabel(type) + "] ");
+            }
+            out << "(T:" << std::this_thread::get_id() << ") ";
+        }
+        ~ZLog() {
+            if (opened) {
+                out << std::endl;
 #ifdef WIN32
-            OutputDebugStringA(out.str().c_str());
+                OutputDebugStringA(out.str().c_str());
 #else
-            std::cout << out.str();
+                std::cout << out.str();
 #endif
+            }
+            opened = false;
         }
-        opened = false;
-    }
-    template <class T>
-    ZLog& operator<<(const T& msg)
-    {
-        if (disabled || msglevel < logger.level)
+        template <class T>
+        ZLog& operator<<(const T& msg) {
+            if (disabled || msglevel < logger.level)
+                return *this;
+            out << msg;
+            opened = true;
             return *this;
-        out << msg;
-        opened = true;
-        return *this;
-    }
+        }
 
-    static bool disabled;
-private:
-    bool opened = false;
-    ZLT msglevel = ZLT::DBG;
-    inline std::string getLabel(ZLT type)
-    {
-        std::string label;
-        switch (type)
-        {
-        case ZLT::DBG:
+        static bool disabled;
+
+    private:
+        bool opened = false;
+        ZLT msglevel = ZLT::DBG;
+        inline std::string getLabel(ZLT type) {
+            std::string label;
+            switch (type) {
+            case ZLT::DBG:
                 label = "DEBUG";
                 break;
-        case ZLT::INFO:
+            case ZLT::INFO:
                 label = "INFO ";
                 break;
-        case ZLT::WARNING:
+            case ZLT::WARNING:
                 label = "WARN ";
                 break;
-        case ZLT::ERROR:
+            case ZLT::ERROR:
                 label = "ERROR";
                 break;
-        case ZLT::ALWAYS:
+            case ZLT::ALWAYS:
                 label = "ALWAYS";
                 break;
-        case ZLT::NONE:
+            case ZLT::NONE:
                 label = "NONE";
                 break;
+            }
+            return label;
         }
-        return label;
-    }
-    std::ostringstream out;
-};
+        std::ostringstream out;
+    };
 
 #ifndef ZLOG
 #ifdef _DEBUG

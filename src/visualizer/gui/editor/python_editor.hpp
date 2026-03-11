@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <imgui.h>
 #include <memory>
 #include <string>
 #include <vector>
+#include <imgui.h>
 
 namespace lfs::vis {
     struct Theme;

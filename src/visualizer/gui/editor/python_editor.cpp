@@ -9,10 +9,10 @@
 #include "theme/theme.hpp"
 
 #include <algorithm>
-#include <cstdint>
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
