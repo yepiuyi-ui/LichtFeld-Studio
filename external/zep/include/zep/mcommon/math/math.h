@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <ostream>
 
 // 2D and 4D vectors, used for area and color calculations.
@@ -15,15 +16,18 @@ namespace Zep {
     template <class T>
     struct NVec2 {
         NVec2(T xVal, T yVal)
-            : x(xVal), y(yVal) {
+            : x(xVal),
+              y(yVal) {
         }
 
         explicit NVec2(T v)
-            : x(v), y(v) {
+            : x(v),
+              y(v) {
         }
 
         NVec2()
-            : x(0), y(0) {
+            : x(0),
+              y(0) {
         }
 
         T x;
@@ -110,7 +114,10 @@ namespace Zep {
     template <class T>
     struct NVec4 {
         NVec4(T xVal, T yVal, T zVal, T wVal)
-            : x(xVal), y(yVal), z(zVal), w(wVal) {
+            : x(xVal),
+              y(yVal),
+              z(zVal),
+              w(wVal) {
         }
 
         explicit NVec4(T val)
@@ -118,7 +125,10 @@ namespace Zep {
         }
 
         NVec4()
-            : x(0), y(0), z(0), w(1) {
+            : x(0),
+              y(0),
+              z(0),
+              w(1) {
         }
 
         T x;
@@ -311,11 +321,13 @@ namespace Zep {
     template <class T>
     struct NRect {
         NRect(const NVec2<T>& topLeft, const NVec2<T>& bottomRight)
-            : topLeftPx(topLeft), bottomRightPx(bottomRight) {
+            : topLeftPx(topLeft),
+              bottomRightPx(bottomRight) {
         }
 
         NRect(T left, T top, T width, T height)
-            : topLeftPx(NVec2<T>(left, top)), bottomRightPx(NVec2<T>(left, top) + NVec2<T>(width, height)) {
+            : topLeftPx(NVec2<T>(left, top)),
+              bottomRightPx(NVec2<T>(left, top) + NVec2<T>(width, height)) {
         }
 
         NRect() {
