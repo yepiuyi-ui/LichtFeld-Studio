@@ -125,38 +125,37 @@ select {
 }
 
 .loss-graph-wrap {
-    display: block;
-    position: relative;
-    height: 70dp;
+    display: flex;
+    align-items: stretch;
+    gap: 4dp;
+    height: 78dp;
     min-width: 0;
     overflow: hidden;
+    background-color: rgba(25, 25, 25, 255);
 }
 
 .loss-graph-ticks {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 48dp;
-    padding: 4dp 3dp 4dp 0;
-    z-index: 1;
+    width: 42dp;
+    flex-shrink: 0;
+    padding: 6dp 0 6dp 0;
 }
 
 .loss-tick {
     font-family: "JetBrains Mono";
-    font-size: 7dp;
-    color: #8c8c8c;
+    font-size: 10dp;
+    color: #bac2de;
     text-align: right;
     white-space: nowrap;
 }
 
 loss-graph {
     display: block;
-    width: 100%;
-    height: 70dp;
+    flex: 1;
+    min-width: 0;
+    height: 78dp;
 }
 
 #loss-graph-container {

@@ -12,7 +12,7 @@ form {
 
 body {
     font-family: Inter;
-    font-size: 11dp;
+    font-size: 12dp;
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -21,7 +21,7 @@ body {
 }
 
 body.docked-panel {
-    font-size: 11dp;
+    font-size: 12dp;
     left: 0;
     right: 0;
     top: 0;
@@ -50,7 +50,7 @@ body.docked-panel {
 
 #title-text {
     flex: 1;
-    font-size: 11dp;
+    font-size: 12dp;
     font-weight: 600;
     min-width: 0;
     line-height: 30dp;
@@ -184,7 +184,7 @@ input[type="range"] sliderarrowinc {
 /* ── Form: Text Input ───────────────────────────────────── */
 
 input[type="text"] {
-    font-size: 11dp;
+    font-size: 12dp;
     color: #cdd6f4;
     background-color: #313244;
     border-width: 1dp;
@@ -210,7 +210,7 @@ button:focus-visible,
 /* ── Form: Select ───────────────────────────────────────── */
 
 select {
-    font-size: 11dp;
+    font-size: 12dp;
     color: #cdd6f4;
     background-color: #313244;
     border-width: 1dp;
@@ -235,7 +235,7 @@ selectbox {
 
 selectbox option {
     padding: 2dp 6dp;
-    font-size: 10dp;
+    font-size: 11dp;
     transition: background-color 0.1s quadratic-out;
 }
 
@@ -286,7 +286,7 @@ progress fill {
     left: 0;
     right: 0;
     text-align: center;
-    font-size: 11dp;
+    font-size: 12dp;
     color: #cdd6f4;
 }
 
@@ -303,13 +303,13 @@ progress fill {
     display: flex;
     align-items: center;
     color: #cdd6f4;
-    font-size: 11dp;
+    font-size: 12dp;
 }
 
 .prop-label {
     min-width: 80dp;
     text-align: left;
-    font-size: 11dp;
+    font-size: 12dp;
     color: #cdd6f4;
     margin-left: 4dp;
     flex-shrink: 0;
@@ -339,7 +339,7 @@ progress fill {
     display: inline-block;
     width: 45dp;
     text-align: right;
-    font-size: 11dp;
+    font-size: 12dp;
     color: #a6adc8;
     margin-left: 4dp;
     flex-shrink: 0;
@@ -356,7 +356,7 @@ progress fill {
     font-weight: bold;
     color: #cdd6f4;
     cursor: pointer;
-    font-size: 10dp;
+    font-size: 11dp;
     border-width: 0;
     border-top-width: 4dp;
     border-radius: 0;
@@ -373,7 +373,7 @@ progress fill {
 .section-arrow {
     display: inline-block;
     width: 10dp;
-    font-size: 10dp;
+    font-size: 11dp;
     color: #cdd6f4;
     text-align: center;
     transform: rotate(0deg);
@@ -433,7 +433,7 @@ progress fill {
 .color-comp {
     display: inline-block;
     min-width: 30dp;
-    font-size: 11dp;
+    font-size: 12dp;
     color: #a6adc8;
     background-color: #313244;
     border-width: 1dp;
@@ -446,7 +446,7 @@ progress fill {
 
 .color-hex {
     width: 70dp;
-    font-size: 11dp;
+    font-size: 12dp;
     padding: 2dp 4dp;
     color: #cdd6f4;
     background-color: #313244;
@@ -488,7 +488,7 @@ progress fill {
     padding: 4dp 12dp;
     cursor: pointer;
     color: #cdd6f4;
-    font-size: 10dp;
+    font-size: 11dp;
     width: 100%;
     text-align: left;
     background-color: transparent;
@@ -507,14 +507,14 @@ progress fill {
 
 .context-menu-item.submenu-item {
     padding-left: 20dp;
-    font-size: 11dp;
+    font-size: 12dp;
 }
 
 .context-menu-label {
     display: block;
     padding: 4dp 12dp;
     color: #a6adc8;
-    font-size: 11dp;
+    font-size: 12dp;
 }
 
 .context-menu-separator {
@@ -537,7 +537,7 @@ progress fill {
 }
 
 .section-label {
-    font-size: 11dp;
+    font-size: 12dp;
     margin-bottom: 4dp;
     margin-top: 6dp;
 }
@@ -547,7 +547,7 @@ progress fill {
 .btn {
     display: inline-block;
     padding: 2dp 8dp;
-    font-size: 10dp;
+    font-size: 11dp;
     color: #cdd6f4;
     background-color: #45475a;
     border-width: 1dp;
@@ -721,7 +721,7 @@ progress fill {
 
 .text-disabled {
     color: #a6adc8;
-    font-size: 11dp;
+    font-size: 12dp;
     padding: 0 0 0 2dp;
 }
 
@@ -741,7 +741,7 @@ progress fill {
     display: block;
     padding: 8dp 6dp;
     color: #a6adc8;
-    font-size: 10dp;
+    font-size: 11dp;
 }
 
 /* ── Custom Diagram Elements ──────────────────────────── */
@@ -778,7 +778,7 @@ crf-curve {
     padding: 0 0 1dp 0;
     text-align: center;
     line-height: 16dp;
-    font-size: 10dp;
+    font-size: 11dp;
     border-width: 1dp;
     margin-left: 2dp;
     flex-shrink: 0;
@@ -806,7 +806,7 @@ crf-curve {
 
 .status-text {
     display: block;
-    font-size: 10dp;
+    font-size: 11dp;
     padding: 2dp 0;
 }
 
