@@ -160,8 +160,7 @@ namespace lfs::vis {
         else if (id == "btn-equirect") {
             ui.equirectangular = !ui.equirectangular;
             lfs::core::events::ui::RenderSettingsChanged{.equirectangular = ui.equirectangular}.emit();
-        }
-        else if (id == "btn-speed") {
+        } else if (id == "btn-speed") {
             const size_t idx = findSpeedIndex(ui.playback_speed);
             const size_t next = (idx + 1) % SPEED_PRESETS.size();
             ui.playback_speed = SPEED_PRESETS[next];
