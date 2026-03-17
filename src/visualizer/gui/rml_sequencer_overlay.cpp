@@ -174,12 +174,11 @@ namespace lfs::vis::gui {
             ".overlay-panel {{ background-color: {}; border-color: {}; border-radius: {}dp; }}\n"
             ".overlay-text {{ color: {}; }}\n"
             ".overlay-text-dim {{ color: {}; }}\n"
-            ".close-x {{ color: {}; }}\n"
             ".edit-popup {{ background-color: {}; border-color: {}; border-radius: {}dp; }}\n"
             ".popup-title {{ color: {}; }}\n"
             ".popup-sep {{ background-color: {}; }}\n",
             surface, border, rounding,
-            text, text_dim, text_dim,
+            text, text_dim,
             surface, border, rounding,
             text, sep_color);
     }
@@ -207,6 +206,10 @@ namespace lfs::vis::gui {
             el_edit_apply_->SetInnerRML(LOC(Sequencer::APPLY_U));
         if (el_edit_revert_)
             el_edit_revert_->SetInnerRML(LOC(Sequencer::REVERT_ESC));
+        if (document_) {
+            if (auto* const close_btn = document_->GetElementById("kf-close-btn"))
+                close_btn->SetInnerRML(LOC(Common::CLOSE));
+        }
         if (el_time_popup_title_)
             el_time_popup_title_->SetInnerRML(LOC(Sequencer::EDIT_KEYFRAME_TIME));
         if (el_focal_popup_title_)
@@ -449,6 +452,9 @@ namespace lfs::vis::gui {
         if (rml_manager_)
             rml_manager_->trackContextFrame(rml_context_, 0, 0);
 
+        // Sync any property changes from this frame before hover and click hit-testing.
+        rml_context_->Update();
+
         const float mx = input.mouse_x;
         const float my = input.mouse_y;
 
@@ -457,8 +463,19 @@ namespace lfs::vis::gui {
         auto* hover = rml_context_->GetHoverElement();
         const bool over_interactive = hover && hover->GetTagName() != "body" &&
                                       hover->GetId() != "body";
+        const bool over_edit_overlay = [&]() {
+            if (!edit_overlay_visible_ || !el_edit_overlay_)
+                return false;
+            const float left = el_edit_overlay_->GetAbsoluteLeft();
+            const float top = el_edit_overlay_->GetAbsoluteTop();
+            const float width = el_edit_overlay_->GetOffsetWidth();
+            const float height = el_edit_overlay_->GetOffsetHeight();
+            return mx >= left && mx <= left + width &&
+                   my >= top && my <= top + height;
+        }();
 
-        if (over_interactive || context_menu_open_ || time_edit_active_ || focal_edit_active_) {
+        if (over_interactive || over_edit_overlay ||
+            context_menu_open_ || time_edit_active_ || focal_edit_active_) {
             wants_input_ = true;
 
             if (skip_next_click_) {
@@ -644,6 +661,8 @@ namespace lfs::vis::gui {
     void RmlSequencerOverlay::OverlayEventListener::ProcessEvent(Rml::Event& event) {
         assert(overlay);
         auto* target = event.GetTargetElement();
+        while (target && target->GetId().empty())
+            target = target->GetParentNode();
         if (!target)
             return;
 
@@ -724,7 +743,7 @@ namespace lfs::vis::gui {
             overlay->hideContextMenu();
         } else if (id == "kf-close-btn") {
             overlay->pending_actions_.push_back(
-                {RmlSequencerOverlay::Action::DESELECT_KEYFRAME, 0, 0, 0.0f});
+                {RmlSequencerOverlay::Action::CLOSE_EDIT_PANEL, 0, 0, 0.0f});
         } else if (id == "kf-edit-apply") {
             overlay->pending_actions_.push_back(
                 {RmlSequencerOverlay::Action::APPLY_EDIT, 0, 0, 0.0f});

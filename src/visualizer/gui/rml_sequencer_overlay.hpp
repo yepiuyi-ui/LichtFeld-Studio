@@ -38,7 +38,7 @@ namespace lfs::vis::gui {
             SET_ROTATE,
             SET_EASING,
             DELETE_KEYFRAME,
-            DESELECT_KEYFRAME,
+            CLOSE_EDIT_PANEL,
             APPLY_EDIT,
             REVERT_EDIT
         };

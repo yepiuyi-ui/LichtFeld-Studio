@@ -60,6 +60,10 @@ namespace lfs::vis {
             void initPipPreview();
             void renderKeyframePreview(const UIContext& ctx);
             void drawPipPreviewWindow(const ViewportLayout& viewport);
+            void beginViewportKeyframeEdit(size_t keyframe_index);
+            void endViewportKeyframeEdit();
+            [[nodiscard]] sequencer::CameraState currentViewportCameraState() const;
+            void restoreViewportCameraState(const sequencer::CameraState& state) const;
 
             VisualizerImpl* viewer_;
             panels::SequencerUIState& ui_state_;
@@ -94,6 +98,7 @@ namespace lfs::vis {
             bool pip_needs_update_ = true;
             bool last_equirectangular_ = false;
             std::chrono::steady_clock::time_point pip_last_render_time_ = std::chrono::steady_clock::now();
+            std::optional<sequencer::Keyframe> viewport_keyframe_edit_snapshot_;
 
             struct TimelineGeometry {
                 float timeline_x = 0.0f;
