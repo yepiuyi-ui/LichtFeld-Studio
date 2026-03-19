@@ -120,14 +120,35 @@
           <option value="3">{{label_mask_alpha_consistent}}</option>
         </select>
       </div>
-      <div data-if="dep_mask_mode">
+      <div class="mask-settings-group" data-if="dep_mask_mode">
         <div class="setting-row" data-tooltip="training.tooltip.invert_masks">
           <span class="prop-label">{{label_invert_masks}}</span>
           <input type="checkbox" data-checked="invert_masks" />
         </div>
+        <div class="setting-row" data-tooltip="training.tooltip.mask_threshold">
+          <span class="prop-label">{{label_mask_threshold}}</span>
+          <input type="text" class="number-input" data-value="mask_threshold_str" />
+          <button class="num-step-btn" data-event-mousedown="num_step('mask_threshold', -1)">-</button>
+          <button class="num-step-btn" data-event-mousedown="num_step('mask_threshold', 1)">+</button>
+        </div>
         <div class="setting-row" data-tooltip="training.tooltip.use_alpha_as_mask">
           <span class="prop-label">{{label_use_alpha_as_mask}}</span>
           <input type="checkbox" data-checked="use_alpha_as_mask" />
+        </div>
+        <div class="mask-settings-divider" data-if="dep_mask_segment"></div>
+        <div data-if="dep_mask_segment">
+          <div class="setting-row" data-tooltip="training.tooltip.penalty_weight">
+            <span class="prop-label">{{label_opacity_penalty_weight}}</span>
+            <input type="text" class="number-input" data-value="mask_opacity_penalty_weight_str" />
+            <button class="num-step-btn" data-event-mousedown="num_step('mask_opacity_penalty_weight', -1)">-</button>
+            <button class="num-step-btn" data-event-mousedown="num_step('mask_opacity_penalty_weight', 1)">+</button>
+          </div>
+          <div class="setting-row" data-tooltip="training.tooltip.penalty_power">
+            <span class="prop-label">{{label_opacity_penalty_power}}</span>
+            <input type="text" class="number-input" data-value="mask_opacity_penalty_power_str" />
+            <button class="num-step-btn" data-event-mousedown="num_step('mask_opacity_penalty_power', -1)">-</button>
+            <button class="num-step-btn" data-event-mousedown="num_step('mask_opacity_penalty_power', 1)">+</button>
+          </div>
         </div>
       </div>
       <div class="setting-row" data-tooltip="training.tooltip.sparsity">

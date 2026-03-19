@@ -64,6 +64,9 @@ LOCALE_KEYS = {
     "bilateral_grid": "training_params.bilateral_grid",
     "mask_mode": "training_params.mask_mode",
     "invert_masks": "training_params.invert_masks",
+    "opacity_penalty_weight": "training.masking.penalty_weight",
+    "opacity_penalty_power": "training.masking.penalty_power",
+    "mask_threshold": "training.masking.threshold",
     "use_alpha_as_mask": "training_params.use_alpha_as_mask",
     "sparsity": "training_params.sparsity",
     "gut": "training_params.gut",
@@ -188,6 +191,9 @@ NUM_PROP_DEFS = [
     ("bilateral_grid_y", int, "%d", 1, None, 1),
     ("bilateral_grid_w", int, "%d", 1, None, 1),
     ("bilateral_grid_lr", float, "%.6f", 0, None, 0.00001),
+    ("mask_opacity_penalty_weight", float, "%.3f", 0, None, 0.1),
+    ("mask_opacity_penalty_power", float, "%.3f", 0.5, None, 0.1),
+    ("mask_threshold", float, "%.3f", 0, 1, 0.05),
     ("opacity_reg", float, "%.4f", 0, None, 0.001),
     ("scale_reg", float, "%.4f", 0, None, 0.001),
     ("tv_loss_weight", float, "%.1f", 0, None, 0.5),
@@ -429,6 +435,8 @@ class TrainingPanel(Panel):
 
         model.bind_func("dep_mask_mode",
                          lambda: p() is not None and p().has_params() and p().mask_mode.value != 0)
+        model.bind_func("dep_mask_segment",
+                         lambda: p() is not None and p().has_params() and p().mask_mode.value == 1)
         model.bind_func("dep_ppisp",
                          lambda: p() is not None and p().has_params() and p().ppisp)
         model.bind_func("dep_ppisp_controller",
