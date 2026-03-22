@@ -47,23 +47,24 @@ namespace lfs::vis::gui {
         int ref_count = 0;
         bool loading = false;
         bool failed = false;
+        bool high_priority = false;
         size_t approx_bytes = 4;
         std::chrono::steady_clock::time_point last_access = std::chrono::steady_clock::now();
         std::string source;
     };
 
     struct PreviewLoadRequest {
-        std::string source;
+        Rml::TextureHandle handle = 0;
         std::filesystem::path path;
         lfs::io::LoadParams display_params;
         lfs::io::PipelinedImageLoader* preview_loader = nullptr;
         std::shared_ptr<lfs::io::PipelinedImageLoader> active_loader;
         bool high_priority = false;
-        uint64_t generation = 0;
+        uint64_t navigation_epoch = 0;
     };
 
     struct LoadedPreview {
-        std::string source;
+        Rml::TextureHandle handle = 0;
         std::vector<uint8_t> pixel_data;
         int width = 0;
         int height = 0;
@@ -73,24 +74,31 @@ namespace lfs::vis::gui {
 
     struct PreviewTextureCache {
         static constexpr int NUM_WORKERS = 4;
+        static constexpr int NUM_HIGH_PRIORITY_WORKERS = 1;
 
         std::unique_ptr<lfs::io::PipelinedImageLoader> preview_loader;
         std::unordered_map<Rml::TextureHandle, PreviewTextureEntry> preview_entries;
         std::unordered_map<std::string, Rml::TextureHandle> source_to_handle;
-        std::deque<PreviewLoadRequest> load_queue;
+        std::deque<PreviewLoadRequest> high_priority_queue;
+        std::deque<PreviewLoadRequest> low_priority_queue;
         std::mutex load_queue_mutex;
         std::condition_variable load_queue_cv;
         std::queue<LoadedPreview> ready_queue;
         std::mutex ready_queue_mutex;
         std::atomic<bool> worker_running{false};
         std::vector<std::thread> workers;
-        std::atomic<uint64_t> load_generation{0};
+        std::atomic<uint64_t> navigation_epoch{0};
         size_t cached_texture_bytes = 0;
 
         PreviewTextureCache();
         ~PreviewTextureCache();
 
-        void worker_loop();
+        void worker_loop(bool allow_low_priority);
+        uint64_t begin_navigation_epoch();
+        void invalidate_loading_entries(bool high_priority_only);
+        void detach_entry_source(Rml::TextureHandle handle);
+        void erase_entry(Rml::TextureHandle handle);
+        bool source_maps_to_handle(const std::string& source, Rml::TextureHandle handle) const;
         void evict_unused_textures();
         void clear_pending_loads();
     };
@@ -339,8 +347,10 @@ namespace lfs::vis::gui {
     PreviewTextureCache::PreviewTextureCache()
         : worker_running(true) {
         workers.reserve(NUM_WORKERS);
-        for (int i = 0; i < NUM_WORKERS; ++i)
-            workers.emplace_back(&PreviewTextureCache::worker_loop, this);
+        for (int i = 0; i < NUM_WORKERS; ++i) {
+            const bool allow_low_priority = (i >= NUM_HIGH_PRIORITY_WORKERS);
+            workers.emplace_back([this, allow_low_priority] { worker_loop(allow_low_priority); });
+        }
     }
 
     PreviewTextureCache::~PreviewTextureCache() {
@@ -350,6 +360,65 @@ namespace lfs::vis::gui {
             if (w.joinable())
                 w.join();
         }
+    }
+
+    bool PreviewTextureCache::source_maps_to_handle(const std::string& source,
+                                                    const Rml::TextureHandle handle) const {
+        if (const auto it = source_to_handle.find(source); it != source_to_handle.end())
+            return it->second == handle;
+        return false;
+    }
+
+    void PreviewTextureCache::detach_entry_source(const Rml::TextureHandle handle) {
+        const auto entry_it = preview_entries.find(handle);
+        if (entry_it == preview_entries.end())
+            return;
+
+        if (const auto source_it = source_to_handle.find(entry_it->second.source);
+            source_it != source_to_handle.end() && source_it->second == handle) {
+            source_to_handle.erase(source_it);
+        }
+    }
+
+    void PreviewTextureCache::erase_entry(const Rml::TextureHandle handle) {
+        const auto entry_it = preview_entries.find(handle);
+        if (entry_it == preview_entries.end())
+            return;
+
+        detach_entry_source(handle);
+        if (entry_it->second.texture_id != 0) {
+            glDeleteTextures(1, &entry_it->second.texture_id);
+        }
+        cached_texture_bytes =
+            (cached_texture_bytes > entry_it->second.approx_bytes)
+                ? cached_texture_bytes - entry_it->second.approx_bytes
+                : 0;
+        preview_entries.erase(entry_it);
+    }
+
+    void PreviewTextureCache::invalidate_loading_entries(const bool high_priority_only) {
+        const auto now = std::chrono::steady_clock::now();
+        for (auto& [handle, entry] : preview_entries) {
+            if (!entry.loading)
+                continue;
+            if (high_priority_only && !entry.high_priority)
+                continue;
+
+            detach_entry_source(handle);
+            entry.loading = false;
+            entry.failed = true;
+            entry.last_access = now;
+        }
+    }
+
+    uint64_t PreviewTextureCache::begin_navigation_epoch() {
+        const auto epoch = navigation_epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
+        {
+            std::lock_guard lock(load_queue_mutex);
+            high_priority_queue.clear();
+        }
+        invalidate_loading_entries(true);
+        return epoch;
     }
 
     void PreviewTextureCache::evict_unused_textures() {
@@ -368,43 +437,54 @@ namespace lfs::vis::gui {
             if (oldest_it == preview_entries.end())
                 break;
 
-            source_to_handle.erase(oldest_it->second.source);
-            if (oldest_it->second.texture_id != 0) {
-                glDeleteTextures(1, &oldest_it->second.texture_id);
-            }
-            cached_texture_bytes =
-                (cached_texture_bytes > oldest_it->second.approx_bytes)
-                    ? cached_texture_bytes - oldest_it->second.approx_bytes
-                    : 0;
-            preview_entries.erase(oldest_it);
+            erase_entry(oldest_it->first);
         }
     }
 
     void PreviewTextureCache::clear_pending_loads() {
-        load_generation.fetch_add(1, std::memory_order_release);
-        std::lock_guard lock(load_queue_mutex);
-        load_queue.clear();
+        navigation_epoch.fetch_add(1, std::memory_order_release);
+        {
+            std::lock_guard lock(load_queue_mutex);
+            high_priority_queue.clear();
+            low_priority_queue.clear();
+        }
+        invalidate_loading_entries(false);
     }
 
-    void PreviewTextureCache::worker_loop() {
+    void PreviewTextureCache::worker_loop(const bool allow_low_priority) {
         while (worker_running) {
             PreviewLoadRequest request;
 
             {
                 std::unique_lock lock(load_queue_mutex);
-                load_queue_cv.wait(lock, [this] {
-                    return !load_queue.empty() || !worker_running.load();
+                load_queue_cv.wait(lock, [this, allow_low_priority] {
+                    if (!worker_running.load())
+                        return true;
+                    if (!high_priority_queue.empty())
+                        return true;
+                    if (!allow_low_priority)
+                        return false;
+                    return !low_priority_queue.empty();
                 });
 
-                if (!worker_running && load_queue.empty())
+                if (!worker_running && high_priority_queue.empty() && low_priority_queue.empty())
                     return;
 
-                request = std::move(load_queue.front());
-                load_queue.pop_front();
+                if (!high_priority_queue.empty()) {
+                    request = std::move(high_priority_queue.front());
+                    high_priority_queue.pop_front();
+                } else {
+                    if (!allow_low_priority || low_priority_queue.empty())
+                        continue;
+                    request = std::move(low_priority_queue.front());
+                    low_priority_queue.pop_front();
+                }
             }
 
-            if (request.generation < load_generation.load(std::memory_order_acquire))
+            if (request.high_priority &&
+                request.navigation_epoch < navigation_epoch.load(std::memory_order_acquire)) {
                 continue;
+            }
 
             try {
                 auto* loader = request.active_loader
@@ -419,9 +499,14 @@ namespace lfs::vis::gui {
                     throw std::runtime_error("Failed to decode preview pixels");
                 }
 
+                if (request.high_priority &&
+                    request.navigation_epoch < navigation_epoch.load(std::memory_order_acquire)) {
+                    continue;
+                }
+
                 {
                     std::lock_guard lock(ready_queue_mutex);
-                    ready_queue.push({.source = request.source,
+                    ready_queue.push({.handle = request.handle,
                                       .pixel_data = std::move(pixels->data),
                                       .width = pixels->width,
                                       .height = pixels->height,
@@ -435,7 +520,7 @@ namespace lfs::vis::gui {
                          e.what());
                 std::lock_guard lock(ready_queue_mutex);
                 ready_queue.push(LoadedPreview{
-                    .source = request.source,
+                    .handle = request.handle,
                     .pixel_data = {},
                     .width = 0,
                     .height = 0,
@@ -483,25 +568,32 @@ namespace lfs::vis::gui {
                 preview_cache_->ready_queue.pop();
             }
 
-            const auto handle_it = preview_cache_->source_to_handle.find(loaded.source);
-            if (handle_it == preview_cache_->source_to_handle.end())
-                continue;
-
-            const auto entry_it = preview_cache_->preview_entries.find(handle_it->second);
+            const auto entry_it = preview_cache_->preview_entries.find(loaded.handle);
             if (entry_it == preview_cache_->preview_entries.end())
                 continue;
 
             auto& entry = entry_it->second;
+            if (!entry.loading)
+                continue;
+
             entry.loading = false;
             entry.last_access = std::chrono::steady_clock::now();
 
             if (loaded.failed) {
                 entry.failed = true;
+                preview_cache_->detach_entry_source(loaded.handle);
+                if (entry.ref_count <= 0) {
+                    preview_cache_->erase_entry(loaded.handle);
+                }
                 continue;
             }
 
             if (!upload_preview_pixels(entry.texture_id, loaded)) {
                 entry.failed = true;
+                preview_cache_->detach_entry_source(loaded.handle);
+                if (entry.ref_count <= 0) {
+                    preview_cache_->erase_entry(loaded.handle);
+                }
                 continue;
             }
 
@@ -580,6 +672,11 @@ namespace lfs::vis::gui {
                 auto& entry = it->second;
                 entry.ref_count = std::max(0, entry.ref_count - 1);
                 entry.last_access = std::chrono::steady_clock::now();
+                if (entry.ref_count == 0 &&
+                    !preview_cache_->source_maps_to_handle(entry.source, texture_handle)) {
+                    preview_cache_->erase_entry(texture_handle);
+                    return;
+                }
                 preview_cache_->evict_unused_textures();
                 return;
             }
@@ -601,16 +698,26 @@ namespace lfs::vis::gui {
 
         if (const auto source_it = preview_cache_->source_to_handle.find(source);
             source_it != preview_cache_->source_to_handle.end()) {
-            if (auto entry_it = preview_cache_->preview_entries.find(source_it->second);
+            const auto existing_handle = source_it->second;
+            if (auto entry_it = preview_cache_->preview_entries.find(existing_handle);
                 entry_it != preview_cache_->preview_entries.end()) {
                 auto& entry = entry_it->second;
-                ++entry.ref_count;
-                entry.last_access = std::chrono::steady_clock::now();
-                dimensions.x = entry.width;
-                dimensions.y = entry.height;
-                return source_it->second;
+                if (entry.failed) {
+                    preview_cache_->detach_entry_source(existing_handle);
+                    if (entry.ref_count <= 0) {
+                        preview_cache_->erase_entry(existing_handle);
+                    }
+                } else {
+                    ++entry.ref_count;
+                    entry.last_access = std::chrono::steady_clock::now();
+                    dimensions.x = entry.width;
+                    dimensions.y = entry.height;
+                    return existing_handle;
+                }
             }
-            preview_cache_->source_to_handle.erase(source_it);
+            if (preview_cache_->source_maps_to_handle(std::string{source}, existing_handle)) {
+                preview_cache_->source_to_handle.erase(source_it);
+            }
         }
 
         const int rf = params.thumb > 0 ? 1 : params.rf;
@@ -647,6 +754,10 @@ namespace lfs::vis::gui {
             return 0;
         }
 
+        const bool high_priority = (params.thumb == 0);
+        const uint64_t epoch =
+            high_priority ? preview_cache_->begin_navigation_epoch() : 0;
+
         const GLuint texture_id = create_placeholder_texture();
         if (texture_id == 0)
             return 0;
@@ -660,6 +771,7 @@ namespace lfs::vis::gui {
             .ref_count = 1,
             .loading = true,
             .failed = false,
+            .high_priority = high_priority,
             .approx_bytes = 4,
             .last_access = std::chrono::steady_clock::now(),
             .source = std::string{source}};
@@ -668,20 +780,20 @@ namespace lfs::vis::gui {
         {
             std::lock_guard lock(preview_cache_->load_queue_mutex);
             PreviewLoadRequest request{
-                .source = std::string{source},
+                .handle = handle,
                 .path = path,
                 .display_params = display_params,
                 .preview_loader = preview_loader,
                 .active_loader = std::move(active_loader),
-                .high_priority = (params.thumb == 0),
-                .generation = preview_cache_->load_generation.load(std::memory_order_acquire)};
+                .high_priority = high_priority,
+                .navigation_epoch = epoch};
             if (request.high_priority) {
-                preview_cache_->load_queue.push_front(std::move(request));
+                preview_cache_->high_priority_queue.push_back(std::move(request));
             } else {
-                preview_cache_->load_queue.push_back(std::move(request));
+                preview_cache_->low_priority_queue.push_back(std::move(request));
             }
         }
-        preview_cache_->load_queue_cv.notify_one();
+        preview_cache_->load_queue_cv.notify_all();
 
         dimensions.x = PLACEHOLDER_DIM;
         dimensions.y = PLACEHOLDER_DIM;

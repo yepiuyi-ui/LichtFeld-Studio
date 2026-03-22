@@ -368,19 +368,34 @@ namespace lfs::vis {
         ui::NodeSelected::when([this](const auto&) { triggerSelectionFlash(); });
 
         // Scene changes
-        state::SceneLoaded::when([this](const auto&) {
+        state::SceneLoaded::when([this](const auto& event) {
             LOG_DEBUG("Scene loaded, marking render dirty");
-            markDirty();
             gt_texture_cache_.clear(); // Clear GT cache when scene changes
+            if (engine_) {
+                engine_->clearFrustumCache();
+            }
 
             // Reset current camera ID when loading a new scene
             current_camera_id_ = -1;
+            hovered_camera_id_ = -1;
+            highlighted_camera_index_ = -1;
 
-            // If GT comparison is enabled but we lost the camera, disable it
+            std::lock_guard<std::mutex> lock(settings_mutex_);
+
+            // Training-data loads should start with frustums enabled so dataset cameras
+            // are immediately visible and the frustum thumbnail path becomes active.
+            if (event.type == state::SceneLoaded::Type::Dataset ||
+                event.type == state::SceneLoaded::Type::Checkpoint) {
+                settings_.show_camera_frustums = true;
+            }
+
+            // If GT comparison is enabled but we lost the camera, disable it.
             if (settings_.split_view_mode == SplitViewMode::GTComparison) {
                 LOG_INFO("Scene loaded, disabling GT comparison (camera selection reset)");
                 settings_.split_view_mode = SplitViewMode::Disabled;
             }
+
+            markDirty();
         });
 
         state::SceneChanged::when([this](const auto&) {
@@ -399,6 +414,8 @@ namespace lfs::vis {
                 engine_->clearFrustumCache();
             }
             current_camera_id_ = -1;
+            hovered_camera_id_ = -1;
+            highlighted_camera_index_ = -1;
             last_model_ptr_ = 0;
             markDirty();
         });
@@ -908,6 +925,14 @@ namespace lfs::vis {
                                         const lfs::core::SplatData* model,
                                         const bool render_lock_held) {
         LOG_TIMER_TRACE("RenderingManager::doFullRender");
+
+        std::shared_ptr<lfs::io::PipelinedImageLoader> frustum_loader;
+        if (auto* tm = scene_manager ? scene_manager->getTrainerManager() : nullptr;
+            tm && tm->hasTrainer()) {
+            if (const auto* trainer = tm->getTrainer())
+                frustum_loader = trainer->getActiveImageLoader();
+        }
+        engine_->setFrustumImageLoader(std::move(frustum_loader));
 
         render_count_++;
         LOG_TRACE("Render #{}", render_count_);
