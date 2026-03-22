@@ -239,84 +239,156 @@ namespace lfs::io {
 
     lfs::core::Tensor PipelinedImageLoader::load_image_immediate(
         const std::filesystem::path& path, const LoadParams& params) {
-        const auto cache_key = make_cache_key(path, params);
+        const auto base_key = lfs::core::path_to_utf8(path);
 
-        if (auto jpeg_data = get_from_jpeg_cache(cache_key)) {
+        auto decode_from_jpeg_cache = [&](const std::shared_ptr<std::vector<uint8_t>>& jpeg_data)
+            -> lfs::core::Tensor {
+            if (!is_nvcodec_available())
+                return {};
             auto& nvcodec = get_nvcodec_loader();
-            auto tensor = nvcodec.load_image_from_memory_gpu(*jpeg_data, 1, 0, nullptr);
-            if (tensor.is_valid() && tensor.numel() > 0) {
-                return tensor;
+            auto tensor = nvcodec.load_image_from_memory_gpu(
+                *jpeg_data, params.resize_factor, params.max_width, nullptr);
+            if (!tensor.is_valid() || tensor.numel() == 0)
+                return {};
+            if (params.undistort) {
+                const auto scaled = lfs::core::scale_undistort_params(
+                    *params.undistort,
+                    static_cast<int>(tensor.shape()[2]),
+                    static_cast<int>(tensor.shape()[1]));
+                tensor = lfs::core::undistort_image(tensor, scaled, nullptr);
             }
+            return tensor;
+        };
+
+        // 1. Base cache hit: full-res JPEG in memory → decode at requested size
+        if (auto jpeg_data = get_from_jpeg_cache(base_key)) {
+            try {
+                auto tensor = decode_from_jpeg_cache(jpeg_data);
+                if (tensor.is_valid() && tensor.numel() > 0)
+                    return tensor;
+            } catch (...) {}
         }
 
+        // 2. Filesystem base cache
         if (config_.use_filesystem_cache) {
-            const auto fs_path = get_fs_cache_path(cache_key);
+            const auto fs_path = get_fs_cache_path(base_key);
             auto done_path = fs_path;
             done_path += ".done";
             if (std::filesystem::exists(fs_path) && std::filesystem::exists(done_path)) {
-                auto data = std::make_shared<std::vector<uint8_t>>(read_file(fs_path));
-                put_in_jpeg_cache(cache_key, data);
-
-                auto& nvcodec = get_nvcodec_loader();
-                auto tensor = nvcodec.load_image_from_memory_gpu(*data, 1, 0, nullptr);
-                if (tensor.is_valid() && tensor.numel() > 0) {
-                    return tensor;
-                }
+                try {
+                    auto data = std::make_shared<std::vector<uint8_t>>(read_file(fs_path));
+                    put_in_jpeg_cache(base_key, data);
+                    auto tensor = decode_from_jpeg_cache(data);
+                    if (tensor.is_valid() && tensor.numel() > 0)
+                        return tensor;
+                } catch (...) {}
             }
         }
 
+        // 3. Read raw file
         auto raw_bytes = read_file(path);
         const bool is_original_jpeg = is_jpeg_data(raw_bytes);
-        const bool needs_processing = (params.resize_factor > 1 || params.max_width > 0 || params.undistort);
 
-        if (is_original_jpeg && !needs_processing) {
+        // 4. JPEG files: the raw file IS the full-res cache
+        if (is_original_jpeg) {
             auto data = std::make_shared<std::vector<uint8_t>>(std::move(raw_bytes));
-            put_in_jpeg_cache(cache_key, data);
+            put_in_jpeg_cache(base_key, data);
+            save_to_fs_cache(base_key, *data);
 
-            auto& nvcodec = get_nvcodec_loader();
-            auto tensor = nvcodec.load_image_from_memory_gpu(*data, 1, 0, nullptr);
-            if (tensor.is_valid() && tensor.numel() > 0) {
-                return tensor;
-            }
-        }
-
-        lfs::core::Tensor decoded;
-        if (is_nvcodec_available() && is_original_jpeg) {
             try {
-                auto& nvcodec = get_nvcodec_loader();
-                decoded = nvcodec.load_image_gpu(path, params.resize_factor, params.max_width, nullptr);
-            } catch (const std::exception& e) {
-                LOG_DEBUG("[PipelinedImageLoader] Immediate decode fallback for {}: {}",
-                          lfs::core::path_to_utf8(path), e.what());
-            }
+                auto tensor = decode_from_jpeg_cache(data);
+                if (tensor.is_valid() && tensor.numel() > 0)
+                    return tensor;
+            } catch (...) {}
+
+            // NvCodec failed for JPEG — fall through to OIIO
+            raw_bytes = *data;
         }
 
-        if (!decoded.is_valid() || decoded.numel() == 0) {
-            auto [img_data, width, height, channels] = lfs::core::load_image(
-                path, params.resize_factor, params.max_width);
-            if (!img_data) {
-                throw std::runtime_error("Failed to decode image: " + lfs::core::path_to_utf8(path));
+        // 5. Non-JPEG (or NvCodec failed): stbi full-res decode → JPEG encode → cache
+        lfs::core::Tensor decoded;
+        {
+            const std::string path_str = lfs::core::path_to_utf8(path);
+            int w = 0, h = 0, ch = 0;
+            unsigned char* img_data = stbi_load(path_str.c_str(), &w, &h, &ch, 3);
+            bool used_stbi = (img_data != nullptr);
+            if (img_data) {
+                ch = 3;
+            } else {
+                auto [oiio_data, ow, oh, oc] = lfs::core::load_image(path, 1, 0);
+                if (!oiio_data)
+                    throw std::runtime_error("Failed to decode image: " + path_str);
+                img_data = oiio_data;
+                w = ow;
+                h = oh;
+                ch = oc;
             }
-
-            const size_t H = static_cast<size_t>(height);
-            const size_t W = static_cast<size_t>(width);
-            const size_t C = static_cast<size_t>(channels);
+            const size_t H = static_cast<size_t>(h);
+            const size_t W = static_cast<size_t>(w);
+            const size_t C = static_cast<size_t>(ch);
 
             auto cpu_tensor = lfs::core::Tensor::from_blob(
                 img_data, lfs::core::TensorShape({H, W, C}),
                 lfs::core::Device::CPU, lfs::core::DataType::UInt8);
-
             auto gpu_uint8 = cpu_tensor.to(lfs::core::Device::CUDA);
-            lfs::core::free_image(img_data);
+            if (used_stbi)
+                stbi_image_free(img_data);
+            else
+                lfs::core::free_image(img_data);
 
             decoded = lfs::core::Tensor::zeros(
                 lfs::core::TensorShape({C, H, W}),
                 lfs::core::Device::CUDA, lfs::core::DataType::Float32);
-
             cuda::launch_uint8_hwc_to_float32_chw(
                 reinterpret_cast<const uint8_t*>(gpu_uint8.data_ptr()),
                 reinterpret_cast<float*>(decoded.data_ptr()),
                 H, W, C, nullptr);
+        }
+
+        // 6. JPEG-encode full-res → base cache, then re-decode at target size
+        if (is_nvcodec_available()) {
+            try {
+                auto& nvcodec = get_nvcodec_loader();
+                auto jpeg_bytes = nvcodec.encode_to_jpeg(decoded, config_.cache_jpeg_quality, nullptr);
+                save_to_fs_cache(base_key, jpeg_bytes);
+                auto jpeg_shared = std::make_shared<std::vector<uint8_t>>(std::move(jpeg_bytes));
+                put_in_jpeg_cache(base_key, jpeg_shared);
+
+                // Re-decode from cached JPEG at target size (NvCodec handles resize)
+                const bool needs_resize =
+                    (params.resize_factor > 1 || params.max_width > 0);
+                if (needs_resize || params.undistort) {
+                    auto tensor = decode_from_jpeg_cache(jpeg_shared);
+                    if (tensor.is_valid() && tensor.numel() > 0)
+                        return tensor;
+                }
+            } catch (const std::exception& e) {
+                LOG_DEBUG("[PipelinedImageLoader] Immediate cache write skipped for {}: {}",
+                          lfs::core::path_to_utf8(path), e.what());
+            }
+        }
+
+        // 7. Fallback (no NvCodec): re-decode at target size via OIIO
+        if (params.resize_factor > 1 || params.max_width > 0) {
+            auto [img_data, rw, rh, rc] = lfs::core::load_image(
+                path, params.resize_factor, params.max_width);
+            if (img_data) {
+                const size_t H = static_cast<size_t>(rh);
+                const size_t W = static_cast<size_t>(rw);
+                const size_t C = static_cast<size_t>(rc);
+                auto cpu_tensor = lfs::core::Tensor::from_blob(
+                    img_data, lfs::core::TensorShape({H, W, C}),
+                    lfs::core::Device::CPU, lfs::core::DataType::UInt8);
+                auto gpu_uint8 = cpu_tensor.to(lfs::core::Device::CUDA);
+                lfs::core::free_image(img_data);
+                decoded = lfs::core::Tensor::zeros(
+                    lfs::core::TensorShape({C, H, W}),
+                    lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+                cuda::launch_uint8_hwc_to_float32_chw(
+                    reinterpret_cast<const uint8_t*>(gpu_uint8.data_ptr()),
+                    reinterpret_cast<float*>(decoded.data_ptr()),
+                    H, W, C, nullptr);
+            }
         }
 
         if (params.undistort) {
@@ -325,18 +397,6 @@ namespace lfs::io {
                 static_cast<int>(decoded.shape()[2]),
                 static_cast<int>(decoded.shape()[1]));
             decoded = lfs::core::undistort_image(decoded, scaled, nullptr);
-        }
-
-        if (is_nvcodec_available()) {
-            try {
-                auto& nvcodec = get_nvcodec_loader();
-                auto jpeg_bytes = nvcodec.encode_to_jpeg(decoded, config_.cache_jpeg_quality, nullptr);
-                save_to_fs_cache(cache_key, jpeg_bytes);
-                put_in_jpeg_cache(cache_key, std::move(jpeg_bytes));
-            } catch (const std::exception& e) {
-                LOG_DEBUG("[PipelinedImageLoader] Immediate cache write skipped for {}: {}",
-                          lfs::core::path_to_utf8(path), e.what());
-            }
         }
 
         return decoded;
