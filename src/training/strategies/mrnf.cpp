@@ -8,8 +8,8 @@
 #include "io/pipelined_image_loader.hpp"
 #include "kernels/densification_kernels.hpp"
 #include "kernels/image_kernels.hpp"
-#include "kernels/mrnf_kernels.hpp"
 #include "kernels/mcmc_kernels.hpp"
+#include "kernels/mrnf_kernels.hpp"
 #include "strategy_utils.hpp"
 #include "training/dataset.hpp"
 #include <algorithm>
