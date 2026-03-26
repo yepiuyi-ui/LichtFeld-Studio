@@ -89,17 +89,17 @@ namespace lfs::core {
             float init_opacity = 0.5f;
             float init_scaling = 0.1f;
             int max_cap = 1000000;
-            std::vector<size_t> eval_steps = {7'000, 30'000}; // Steps to evaluate the model
-            std::vector<size_t> save_steps = {7'000, 30'000}; // Steps to save the model
-            bool bg_modulation = false;                       // Enable sinusoidal background modulation
-            bool enable_eval = false;                         // Only evaluate when explicitly enabled
-            bool enable_save_eval_images = true;              // Save during evaluation images
-            bool headless = false;                            // Disable visualization during training
-            bool auto_train = false;                          // Start training immediately on startup
-            bool no_splash = false;                           // Skip splash screen on startup
-            bool no_interop = false;                          // Disable CUDA-GL interop (use CPU fallback)
-            bool debug_python = false;                        // Start debugpy listener for plugin debugging
-            int debug_python_port = 5678;                     // Port for debugpy listener
+            std::vector<size_t> eval_steps = {7'000, 30'000};  // Steps to evaluate the model
+            std::vector<size_t> save_steps = {7'000, 30'000};  // Steps to save the model
+            bool bg_modulation = false;                        // Enable sinusoidal background modulation
+            bool enable_eval = false;                          // Only evaluate when explicitly enabled
+            bool enable_save_eval_images = true;               // Save during evaluation images
+            bool headless = false;                             // Disable visualization during training
+            bool auto_train = false;                           // Start training immediately on startup
+            bool no_splash = false;                            // Skip splash screen on startup
+            bool no_interop = false;                           // Disable CUDA-GL interop (use CPU fallback)
+            bool debug_python = false;                         // Start debugpy listener for plugin debugging
+            int debug_python_port = 5678;                      // Port for debugpy listener
             std::string strategy = std::string(kStrategyMRNF); // Optimization strategy: mcmc, mrnf, igs+.
 
             // Mask parameters
