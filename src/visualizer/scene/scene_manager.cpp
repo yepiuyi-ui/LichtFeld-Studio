@@ -77,6 +77,15 @@ namespace lfs::vis {
                                                            std::move(before), std::move(after)));
         }
 
+        [[nodiscard]] bool hasActiveSelectionFilter(const RenderingManager* const rendering_manager) {
+            if (!rendering_manager) {
+                return false;
+            }
+
+            const auto settings = rendering_manager->getSettings();
+            return settings.depth_filter_enabled || settings.crop_filter_for_selection;
+        }
+
         void pushSceneGraphMetadataHistoryEntry(
             SceneManager& scene_manager,
             std::string label,
@@ -3549,6 +3558,14 @@ namespace lfs::vis {
     }
 
     void SceneManager::invertSelection() {
+        auto* rendering_manager = services().renderingOrNull();
+        if (selection_service_ &&
+            rendering_manager &&
+            hasActiveSelectionFilter(rendering_manager)) {
+            (void)selection_service_->invertFiltered();
+            return;
+        }
+
         const size_t total = scene_.getTotalGaussianCount();
         if (total == 0)
             return;
@@ -3590,6 +3607,14 @@ namespace lfs::vis {
         auto* editor = services().editorOrNull();
         const auto tool = editor ? editor->getActiveTool() : ToolType::None;
         const bool is_selection_tool = (tool == ToolType::Selection || tool == ToolType::Brush);
+        auto* rendering_manager = services().renderingOrNull();
+
+        if (selection_service_ &&
+            rendering_manager &&
+            hasActiveSelectionFilter(rendering_manager)) {
+            (void)selection_service_->selectAllFiltered();
+            return;
+        }
 
         if (is_selection_tool) {
             const size_t total = scene_.getTotalGaussianCount();
@@ -3628,8 +3653,8 @@ namespace lfs::vis {
                 selectNodes(splat_names);
         }
 
-        if (auto* rm = services().renderingOrNull())
-            rm->markDirty(DirtyFlag::SELECTION);
+        if (rendering_manager)
+            rendering_manager->markDirty(DirtyFlag::SELECTION);
     }
 
     void SceneManager::copySelectionToClipboard() {

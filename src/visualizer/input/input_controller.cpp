@@ -1213,6 +1213,18 @@ namespace lfs::vis {
                 }
                 return;
 
+            case input::Action::CANCEL_POLYGON:
+                if (tool_context_) {
+                    if (auto* sm = tool_context_->getSceneManager()) {
+                        if (auto* selection_service = sm->getSelectionService();
+                            selection_service && selection_service->isInteractiveSelectionActive()) {
+                            selection_service->cancelInteractiveSelection();
+                            return;
+                        }
+                    }
+                }
+                return;
+
             case input::Action::DELETE_SELECTED:
                 cmd::DeleteSelected{}.emit();
                 return;
