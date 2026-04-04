@@ -6,6 +6,7 @@
 #include "core/data_loading_service.hpp"
 #include "core/events.hpp"
 #include "core/logger.hpp"
+#include "core/path_utils.hpp"
 #include "core/scene.hpp"
 #include "gui/gui_manager.hpp"
 #include "gui/html_viewer_export.hpp"
@@ -1176,7 +1177,7 @@ namespace lfs::vis::gui {
                             video_export_state_.stage = "Cancelled";
                         } else if (video_export_state_.error.empty() && !video_export_state_.cancel_requested.load()) {
                             video_export_state_.stage = "Complete";
-                            LOG_INFO("Video export completed: {}", path.string());
+                            LOG_INFO("Video export completed: {}", lfs::core::path_to_utf8(path));
                             emit_completed = true;
                         }
                     }

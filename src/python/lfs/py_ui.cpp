@@ -427,7 +427,7 @@ namespace lfs::python {
                 }
             }
 
-            std::filesystem::path icon_path = std::filesystem::path(plugin_path) / "icons" / (icon_name + ".png");
+            std::filesystem::path icon_path = lfs::core::utf8_to_path(plugin_path) / "icons" / (icon_name + ".png");
 
             if (!std::filesystem::exists(icon_path)) {
                 icon_path = lfs::vis::getAssetPath("icon/" + icon_name + ".png");
@@ -4347,7 +4347,7 @@ namespace lfs::python {
             "load_image_texture",
             [](const std::string& path) -> nb::tuple {
                 try {
-                    auto [data, w, h, channels] = lfs::core::load_image(std::filesystem::path(path), -1, -1);
+                    auto [data, w, h, channels] = lfs::core::load_image(lfs::core::utf8_to_path(path), -1, -1);
                     if (!data)
                         return nb::make_tuple(0, 0, 0);
 
@@ -4365,7 +4365,7 @@ namespace lfs::python {
             "load_thumbnail",
             [](const std::string& path, int max_size) -> nb::tuple {
                 try {
-                    auto [data, w, h, channels] = lfs::core::load_image(std::filesystem::path(path), -1, max_size);
+                    auto [data, w, h, channels] = lfs::core::load_image(lfs::core::utf8_to_path(path), -1, max_size);
                     if (!data)
                         return nb::make_tuple(0, 0, 0);
 
@@ -4390,7 +4390,7 @@ namespace lfs::python {
         m.def(
             "get_image_info",
             [](const std::string& path) -> nb::tuple {
-                auto [w, h, c] = lfs::core::get_image_info(std::filesystem::path(path));
+                auto [w, h, c] = lfs::core::get_image_info(lfs::core::utf8_to_path(path));
                 return nb::make_tuple(w, h, c);
             },
             nb::arg("path"), "Get image dimensions without loading pixel data, returns (width, height, channels)");
@@ -4404,7 +4404,7 @@ namespace lfs::python {
 
                 auto entry = std::make_unique<PreloadEntry>();
                 entry->future = std::async(std::launch::async, [path_copy = path]() {
-                    return lfs::core::load_image(std::filesystem::path(path_copy), -1, -1);
+                    return lfs::core::load_image(lfs::core::utf8_to_path(path_copy), -1, -1);
                 });
                 g_preload_cache[path] = std::move(entry);
             },

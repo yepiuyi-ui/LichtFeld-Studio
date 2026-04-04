@@ -528,7 +528,7 @@ namespace lfs::vis {
                     names.emplace_back(node_names[i]);
                 }
                 gm->asyncTasks().performExport(static_cast<lfs::core::ExportFormat>(format),
-                                               std::filesystem::path(path), names, sh_degree);
+                                               lfs::core::utf8_to_path(path), names, sh_degree);
             }
         });
         callback_cleanup_.add([] { python::set_export_callback(nullptr); });

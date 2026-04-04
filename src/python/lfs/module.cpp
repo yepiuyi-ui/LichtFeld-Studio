@@ -119,6 +119,12 @@ namespace {
         }
     }
 
+    // Python path strings are UTF-8. Avoid implicit std::filesystem::path(string)
+    // on Windows, which routes through the active ANSI code page.
+    std::filesystem::path python_utf8_path(const std::string& value) {
+        return lfs::core::utf8_to_path(value);
+    }
+
     CommandCenter* get_command_center_opt() {
         return lfs::event::command_center();
     }
@@ -681,10 +687,10 @@ NB_MODULE(lichtfeld, m) {
            const std::string& output_path, const std::string& init_path) {
             nb::gil_scoped_release release;
             lfs::core::events::cmd::LoadFile{
-                .path = path,
+                .path = python_utf8_path(path),
                 .is_dataset = is_dataset,
-                .output_path = output_path,
-                .init_path = init_path}
+                .output_path = python_utf8_path(output_path),
+                .init_path = python_utf8_path(init_path)}
                 .emit();
         },
         nb::arg("path"), nb::arg("is_dataset") = false,
@@ -693,7 +699,9 @@ NB_MODULE(lichtfeld, m) {
 
     m.def(
         "load_config_file",
-        [](const std::string& path) { lfs::core::events::cmd::LoadConfigFile{.path = path}.emit(); },
+        [](const std::string& path) {
+            lfs::core::events::cmd::LoadConfigFile{.path = python_utf8_path(path)}.emit();
+        },
         nb::arg("path"), "Load a JSON configuration file.");
 
     m.def(
@@ -701,9 +709,9 @@ NB_MODULE(lichtfeld, m) {
         [](const std::string& checkpoint_path, const std::string& dataset_path, const std::string& output_path) {
             nb::gil_scoped_release release;
             lfs::core::events::cmd::LoadCheckpointForTraining{
-                .checkpoint_path = checkpoint_path,
-                .dataset_path = dataset_path,
-                .output_path = output_path,
+                .checkpoint_path = python_utf8_path(checkpoint_path),
+                .dataset_path = python_utf8_path(dataset_path),
+                .output_path = python_utf8_path(output_path),
             }
                 .emit();
         },
@@ -729,6 +737,7 @@ NB_MODULE(lichtfeld, m) {
     m.def(
         "save_config_file",
         [](const std::string& path) {
+            const auto output_path = python_utf8_path(path);
             const auto* const param_manager = lfs::vis::services().paramsOrNull();
             if (!param_manager) {
                 throw std::runtime_error("No parameter manager available");
@@ -736,7 +745,7 @@ NB_MODULE(lichtfeld, m) {
             lfs::core::param::TrainingParameters params;
             params.dataset = param_manager->getDatasetConfig();
             params.optimization = param_manager->copyActiveParams();
-            if (const auto result = lfs::core::param::save_training_parameters_to_json(params, path); !result) {
+            if (const auto result = lfs::core::param::save_training_parameters_to_json(params, output_path); !result) {
                 throw std::runtime_error("Failed to save config: " + result.error());
             }
         },
@@ -1437,7 +1446,7 @@ NB_MODULE(lichtfeld, m) {
         "open",
         [](const std::string& path_str) {
             namespace cmd = lfs::core::events::cmd;
-            cmd::LoadFile{.path = path_str, .is_dataset = true}.emit();
+            cmd::LoadFile{.path = python_utf8_path(path_str), .is_dataset = true}.emit();
         },
         nb::arg("path"),
         "Open a dataset or file in the application");
@@ -1748,7 +1757,7 @@ Example:
 
     m.def(
         "detect_dataset_info",
-        [](const std::string& path) { return lfs::io::detect_dataset_info(lfs::core::utf8_to_path(path)); },
+        [](const std::string& path) { return lfs::io::detect_dataset_info(python_utf8_path(path)); },
         nb::arg("path"), "Detect dataset information from a directory path");
 
     nb::class_<lfs::core::CheckpointHeader>(m, "CheckpointHeader", "Information from a checkpoint file header")
@@ -1763,7 +1772,7 @@ Example:
     m.def(
         "read_checkpoint_header",
         [](const std::string& path) -> std::optional<lfs::core::CheckpointHeader> {
-            auto result = lfs::core::load_checkpoint_header(path);
+            auto result = lfs::core::load_checkpoint_header(python_utf8_path(path));
             if (!result) {
                 return std::nullopt;
             }
@@ -1786,7 +1795,7 @@ Example:
     m.def(
         "read_checkpoint_params",
         [](const std::string& path) -> std::optional<lfs::core::param::DatasetConfig> {
-            auto result = lfs::core::load_checkpoint_params(path);
+            auto result = lfs::core::load_checkpoint_params(python_utf8_path(path));
             if (!result) {
                 return std::nullopt;
             }
