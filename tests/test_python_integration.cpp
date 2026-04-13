@@ -6,9 +6,9 @@
 
 #include <torch/torch.h>
 
+#include "core/camera.hpp"
 #include "core/event_bridge/command_center_bridge.hpp"
 #include "core/event_bridge/control_boundary.hpp"
-#include "core/camera.hpp"
 #include "core/logger.hpp"
 #include "core/scene.hpp"
 #include "core/splat_data.hpp"
@@ -23,8 +23,8 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
@@ -755,7 +755,8 @@ TEST_F(PythonIntegrationTest, SceneCameraExposesVisualizerRenderContract) {
     const auto script = std::string(R"PY(
 import lichtfeld as lf
 import warnings
-result = lf.io.load(r")PY") + dataset_dir.string() + R"PY(", resize_factor=8, images_folder="images_8")
+result = lf.io.load(r")PY") +
+                        dataset_dir.string() + R"PY(", resize_factor=8, images_folder="images_8")
 camera = result.cameras[0]
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter("always", DeprecationWarning)
