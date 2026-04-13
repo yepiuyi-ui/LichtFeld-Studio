@@ -2041,7 +2041,7 @@ namespace lfs::vis::editor {
             }
 
             if (ImGui::BeginPopupContextWindow("##python_editor_context",
-                                              ImGuiPopupFlags_MouseButtonRight)) {
+                                               ImGuiPopupFlags_MouseButtonRight)) {
                 const bool has_selection = impl_->hasEditableSelection();
                 const bool can_modify = !impl_->read_only;
 
