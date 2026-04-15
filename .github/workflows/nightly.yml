@@ -8,13 +8,120 @@ on:
   schedule:
     - cron: '0 1 * * *'  # 2 AM CET (1 AM UTC)
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: Build even if the previous successful nightly already used this commit
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build-windows:
+  precheck:
     if: github.repository == 'MrNeRF/LichtFeld-Studio'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      reason: ${{ steps.decide.outputs.reason }}
+      previous_sha: ${{ steps.decide.outputs.previous_sha }}
+
+    steps:
+      - name: Decide whether nightly build is needed
+        id: decide
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const forceBuild = context.payload.inputs?.force_build === 'true';
+            const currentSha = context.sha;
+
+            if (forceBuild) {
+              core.setOutput('should_build', 'true');
+              core.setOutput('reason', 'Manual force_build override requested.');
+              core.setOutput('previous_sha', '');
+              return;
+            }
+
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'nightly.yml',
+              status: 'success',
+              per_page: 20,
+            };
+
+            if (context.ref.startsWith('refs/heads/')) {
+              params.branch = context.ref.replace('refs/heads/', '');
+            }
+
+            let previousRun;
+            try {
+              const { data } = await github.rest.actions.listWorkflowRuns(params);
+              previousRun = data.workflow_runs.find((run) =>
+                run.id !== context.runId &&
+                ['schedule', 'workflow_dispatch'].includes(run.event)
+              );
+            } catch (error) {
+              core.warning(`Failed to inspect previous nightly runs: ${error.message}`);
+              core.setOutput('should_build', 'true');
+              core.setOutput(
+                'reason',
+                'Failed to inspect previous nightly runs; building to avoid skipping a needed nightly.'
+              );
+              core.setOutput('previous_sha', '');
+              return;
+            }
+
+            if (!previousRun) {
+              core.setOutput('should_build', 'true');
+              core.setOutput('reason', 'No previous successful nightly build was found.');
+              core.setOutput('previous_sha', '');
+              return;
+            }
+
+            core.setOutput('previous_sha', previousRun.head_sha);
+
+            if (previousRun.head_sha === currentSha) {
+              core.setOutput('should_build', 'false');
+              core.setOutput(
+                'reason',
+                `Previous successful nightly already built commit ${currentSha}.`
+              );
+              return;
+            }
+
+            core.setOutput('should_build', 'true');
+            core.setOutput(
+              'reason',
+              `Previous successful nightly used ${previousRun.head_sha}; current commit is ${currentSha}.`
+            );
+
+      - name: Publish precheck summary
+        env:
+          PREVIOUS_SHA: ${{ steps.decide.outputs.previous_sha }}
+          REASON: ${{ steps.decide.outputs.reason }}
+          SHOULD_BUILD: ${{ steps.decide.outputs.should_build }}
+        run: |
+          {
+            echo "### Nightly precheck"
+            echo
+            echo "- Build required: \`${SHOULD_BUILD}\`"
+            echo "- Current commit: \`${GITHUB_SHA}\`"
+            if [ -n "${PREVIOUS_SHA}" ]; then
+              echo "- Previous successful nightly commit: \`${PREVIOUS_SHA}\`"
+            else
+              echo "- Previous successful nightly commit: not found"
+            fi
+            echo "- Decision: ${REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-windows:
+    needs: precheck
+    if: github.repository == 'MrNeRF/LichtFeld-Studio' && needs.precheck.outputs.should_build == 'true'
     runs-on: windows-2022
     outputs:
       artifact_name: ${{ steps.package.outputs.artifact_name }}
@@ -207,7 +314,10 @@ jobs:
           if-no-files-found: error
 
   publish-r2:
-    needs: build-windows
+    needs:
+      - precheck
+      - build-windows
+    if: needs.precheck.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     environment: nightly-publish
     permissions:
