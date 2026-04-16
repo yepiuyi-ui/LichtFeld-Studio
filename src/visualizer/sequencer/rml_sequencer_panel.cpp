@@ -857,7 +857,6 @@ namespace lfs::vis {
         el_ruler_->SetInnerRML(html);
     }
 
-
     bool RmlSequencerPanel::consumeSavePathRequest() {
         const bool r = save_path_requested_;
         save_path_requested_ = false;

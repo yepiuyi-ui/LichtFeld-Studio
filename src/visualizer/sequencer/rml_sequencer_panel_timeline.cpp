@@ -1,7 +1,6 @@
 /* SPDX-FileCopyrightText: 2025 LichtFeld Studio Authors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
-#include "sequencer/rml_sequencer_panel.hpp"
 #include "core/events.hpp"
 #include "gui/film_strip_renderer.hpp"
 #include "gui/rmlui/rml_input_utils.hpp"
@@ -11,6 +10,7 @@
 #include "gui/rmlui/rmlui_render_interface.hpp"
 #include "gui/rmlui/sdl_rml_key_mapping.hpp"
 #include "sequencer/interpolation.hpp"
+#include "sequencer/rml_sequencer_panel.hpp"
 #include "sequencer/timeline_view_math.hpp"
 
 #include <RmlUi/Core.h>
