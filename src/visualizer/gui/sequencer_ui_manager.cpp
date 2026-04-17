@@ -554,9 +554,99 @@ namespace lfs::vis::gui {
         if (!rm)
             return;
         const auto& settings = rm->getSettings();
-        const glm::mat3 viewport_rotation = vp.getRotationMatrix();
-        const glm::vec3 viewport_translation = vp.getTranslation();
         const glm::ivec2 vp_size(static_cast<int>(viewport.size.x), static_cast<int>(viewport.size.y));
+        const auto* const rendering_manager = static_cast<const RenderingManager*>(rm);
+
+        struct CameraPathPanel {
+            SplitViewPanelId panel_id = SplitViewPanelId::Left;
+            const Viewport* viewport = nullptr;
+            glm::vec2 projection_pos{0.0f};
+            glm::vec2 projection_size{0.0f};
+            glm::ivec2 render_size{0};
+            gui::ClipRect clip_rect{};
+
+            [[nodiscard]] bool valid() const {
+                return viewport != nullptr &&
+                       projection_size.x > 0.0f &&
+                       projection_size.y > 0.0f &&
+                       render_size.x > 0 &&
+                       render_size.y > 0 &&
+                       clip_rect.width > 0 &&
+                       clip_rect.height > 0;
+            }
+
+            [[nodiscard]] bool contains(const float x, const float y) const {
+                return x >= static_cast<float>(clip_rect.x) &&
+                       x <= static_cast<float>(clip_rect.x + clip_rect.width) &&
+                       y >= static_cast<float>(clip_rect.y) &&
+                       y <= static_cast<float>(clip_rect.y + clip_rect.height);
+            }
+        };
+
+        std::vector<CameraPathPanel> panels;
+        panels.reserve(2);
+
+        const auto add_viewer_panel = [&](const std::optional<RenderingManager::ViewerPanelInfo>& info_opt) {
+            if (!info_opt || !info_opt->valid())
+                return;
+            const auto& info = *info_opt;
+            panels.push_back(CameraPathPanel{
+                .panel_id = info.panel,
+                .viewport = info.viewport,
+                .projection_pos = {info.x, info.y},
+                .projection_size = {info.width, info.height},
+                .render_size = {info.render_width, info.render_height},
+                .clip_rect = {
+                    static_cast<int>(std::round(info.x)),
+                    static_cast<int>(std::round(info.y)),
+                    static_cast<int>(std::round(info.width)),
+                    static_cast<int>(std::round(info.height)),
+                },
+            });
+        };
+
+        if (rm->isIndependentSplitViewActive()) {
+            add_viewer_panel(rendering_manager->resolveViewerPanel(
+                vp, viewport.pos, viewport.size, std::nullopt, SplitViewPanelId::Left));
+            add_viewer_panel(rendering_manager->resolveViewerPanel(
+                vp, viewport.pos, viewport.size, std::nullopt, SplitViewPanelId::Right));
+        }
+
+        if (panels.empty()) {
+            const int clip_x = static_cast<int>(std::round(viewport.pos.x));
+            const int clip_y = static_cast<int>(std::round(viewport.pos.y));
+            const int clip_w = static_cast<int>(std::round(viewport.size.x));
+            const int clip_h = static_cast<int>(std::round(viewport.size.y));
+            std::vector<gui::ClipRect> clip_rects;
+            clip_rects.reserve(2);
+
+            if (const auto divider_x = rm->getSplitDividerScreenX(viewport.pos, viewport.size);
+                divider_x.has_value()) {
+                const int divider =
+                    std::clamp(static_cast<int>(std::round(*divider_x)), clip_x, clip_x + clip_w);
+                if (divider > clip_x)
+                    clip_rects.push_back({clip_x, clip_y, divider - clip_x, clip_h});
+                if (divider < clip_x + clip_w)
+                    clip_rects.push_back({divider, clip_y, clip_x + clip_w - divider, clip_h});
+            }
+
+            if (clip_rects.empty())
+                clip_rects.push_back({clip_x, clip_y, clip_w, clip_h});
+
+            for (size_t i = 0; i < clip_rects.size(); ++i) {
+                panels.push_back(CameraPathPanel{
+                    .panel_id = (i == 0) ? SplitViewPanelId::Left : SplitViewPanelId::Right,
+                    .viewport = &vp,
+                    .projection_pos = viewport.pos,
+                    .projection_size = viewport.size,
+                    .render_size = vp_size,
+                    .clip_rect = clip_rects[i],
+                });
+            }
+        }
+
+        if (panels.empty())
+            return;
 
         if (viewport_edit_mode_ != SequencerViewportEditMode::None) {
             const auto selected = controller_.selectedKeyframe();
@@ -570,52 +660,69 @@ namespace lfs::vis::gui {
             }
         }
 
-        const auto projectToScreen = [&](const glm::vec3& pos) -> glm::vec2 {
+        const auto projectToScreen = [&](const CameraPathPanel& panel,
+                                         const glm::vec3& pos) -> glm::vec2 {
             const auto projected = lfs::rendering::projectWorldPoint(
-                viewport_rotation,
-                viewport_translation,
-                vp_size,
+                panel.viewport->getRotationMatrix(),
+                panel.viewport->getTranslation(),
+                panel.render_size,
                 pos,
                 settings.focal_length_mm,
                 settings.orthographic,
                 settings.ortho_scale);
             if (!projected)
                 return {-10000.0f, -10000.0f};
-            return {viewport.pos.x + projected->x,
-                    viewport.pos.y + projected->y};
+            const float scale_x =
+                panel.projection_size.x / static_cast<float>(std::max(panel.render_size.x, 1));
+            const float scale_y =
+                panel.projection_size.y / static_cast<float>(std::max(panel.render_size.y, 1));
+            return {
+                panel.projection_pos.x + projected->x * scale_x,
+                panel.projection_pos.y + projected->y * scale_y,
+            };
         };
 
-        const auto isVisible = [&](const glm::vec3& pos) -> bool {
+        const auto isVisible = [&](const CameraPathPanel& panel,
+                                   const glm::vec3& pos) -> bool {
             const auto projected = lfs::rendering::projectWorldPoint(
-                viewport_rotation,
-                viewport_translation,
-                vp_size,
+                panel.viewport->getRotationMatrix(),
+                panel.viewport->getTranslation(),
+                panel.render_size,
                 pos,
                 settings.focal_length_mm,
                 settings.orthographic,
                 settings.ortho_scale);
             if (!projected)
                 return false;
-            const float margin_x = (NDC_CULL_MARGIN - 1.0f) * 0.5f * viewport.size.x;
-            const float margin_y = (NDC_CULL_MARGIN - 1.0f) * 0.5f * viewport.size.y;
+            const float margin_x =
+                (NDC_CULL_MARGIN - 1.0f) * 0.5f * static_cast<float>(panel.render_size.x);
+            const float margin_y =
+                (NDC_CULL_MARGIN - 1.0f) * 0.5f * static_cast<float>(panel.render_size.y);
             return projected->x >= -margin_x &&
-                   projected->x <= viewport.size.x + margin_x &&
+                   projected->x <= static_cast<float>(panel.render_size.x) + margin_x &&
                    projected->y >= -margin_y &&
-                   projected->y <= viewport.size.y + margin_y;
+                   projected->y <= static_cast<float>(panel.render_size.y) + margin_y;
         };
 
-        const auto worldPointAtDepth = [&](const float screen_x,
+        const auto worldPointAtDepth = [&](const CameraPathPanel& panel,
+                                           const float screen_x,
                                            const float screen_y,
                                            const float depth) -> glm::vec3 {
-            const float local_x = screen_x - viewport.pos.x;
-            const float local_y = screen_y - viewport.pos.y;
+            const float scale_x =
+                static_cast<float>(panel.render_size.x) / std::max(panel.projection_size.x, 1.0f);
+            const float scale_y =
+                static_cast<float>(panel.render_size.y) / std::max(panel.projection_size.y, 1.0f);
+            const float local_x = (screen_x - panel.projection_pos.x) * scale_x;
+            const float local_y = (screen_y - panel.projection_pos.y) * scale_y;
+            const glm::mat3 viewport_rotation = panel.viewport->getRotationMatrix();
+            const glm::vec3 viewport_translation = panel.viewport->getTranslation();
 
             if (settings.orthographic) {
                 if (!std::isfinite(settings.ortho_scale) || settings.ortho_scale <= 0.0f)
                     return viewport_transform_drag_start_position_;
 
-                const float cx = static_cast<float>(vp_size.x) * 0.5f;
-                const float cy = static_cast<float>(vp_size.y) * 0.5f;
+                const float cx = static_cast<float>(panel.render_size.x) * 0.5f;
+                const float cy = static_cast<float>(panel.render_size.y) * 0.5f;
                 const glm::vec3 view_pos(
                     (local_x - cx) / settings.ortho_scale,
                     (cy - local_y) / settings.ortho_scale,
@@ -630,7 +737,7 @@ namespace lfs::vis::gui {
             return lfs::rendering::unprojectScreenPoint(
                 viewport_rotation,
                 viewport_translation,
-                vp_size,
+                panel.render_size,
                 local_x,
                 local_y,
                 depth,
@@ -649,13 +756,6 @@ namespace lfs::vis::gui {
         const int screen_h = screen_size.y;
         const int fb_w = framebuffer_size.x;
         const int fb_h = framebuffer_size.y;
-        line_renderer_.begin(
-            screen_w, screen_h, fb_w, fb_h,
-            gui::ClipRect{
-                static_cast<int>(std::round(viewport.pos.x)),
-                static_cast<int>(std::round(viewport.pos.y)),
-                static_cast<int>(std::round(viewport.size.x)),
-                static_cast<int>(std::round(viewport.size.y))});
 
         const auto addCircleOutline = [&](const glm::vec2& center, const float radius,
                                           const glm::vec4& color, const float thickness) {
@@ -681,34 +781,17 @@ namespace lfs::vis::gui {
                 : base_path_time_step;
         const float path_time_step = std::max(base_path_time_step, capped_path_time_step);
         const auto path_points = timeline.generatePathAtTimeStep(path_time_step);
-        if (path_points.size() >= 2) {
-            const glm::vec4 path_color = toColor(t.palette.primary, 0.8f);
-            const glm::vec4 sample_color = toColor(t.palette.primary, 0.45f);
-            for (size_t i = 0; i + 1 < path_points.size(); ++i) {
-                if (!isVisible(path_points[i]) && !isVisible(path_points[i + 1]))
-                    continue;
-                line_renderer_.addLine(projectToScreen(path_points[i]), projectToScreen(path_points[i + 1]),
-                                       path_color, PATH_THICKNESS);
-            }
-
-            const size_t marker_stride =
-                std::max<size_t>(path_points.size() / MAX_PATH_SAMPLE_MARKERS, 1);
-            for (size_t i = 0; i < path_points.size(); i += marker_stride) {
-                if (!isVisible(path_points[i]))
-                    continue;
-                line_renderer_.addCircleFilled(projectToScreen(path_points[i]),
-                                               PATH_SAMPLE_RADIUS,
-                                               sample_color, 10);
-            }
-        }
 
         const auto& input = viewer_->getWindowManager()->frameInput();
         const float mouse_x = input.mouse_x;
         const float mouse_y = input.mouse_y;
-        const bool mouse_in_viewport = mouse_x >= viewport.pos.x &&
-                                       mouse_x <= viewport.pos.x + viewport.size.x &&
-                                       mouse_y >= viewport.pos.y &&
-                                       mouse_y <= viewport.pos.y + viewport.size.y;
+        const CameraPathPanel* mouse_panel = nullptr;
+        for (const auto& panel : panels) {
+            if (panel.contains(mouse_x, mouse_y)) {
+                mouse_panel = &panel;
+                break;
+            }
+        }
 
         std::optional<size_t> hovered_keyframe;
         float closest_dist = HIT_RADIUS;
@@ -717,16 +800,15 @@ namespace lfs::vis::gui {
         const glm::vec4 hovered_frustum_color = toColor(lighten(t.palette.primary, 0.15f), 0.85f);
         const glm::vec4 selected_frustum_color = toColor(lighten(t.palette.primary, 0.3f), 0.9f);
 
-        for (size_t i = 0; i < timeline.keyframes().size(); ++i) {
-            const auto& kf = timeline.keyframes()[i];
-            if (kf.is_loop_point)
-                continue;
-            if (!isVisible(kf.position))
-                continue;
+        if (mouse_panel) {
+            for (size_t i = 0; i < timeline.keyframes().size(); ++i) {
+                const auto& kf = timeline.keyframes()[i];
+                if (kf.is_loop_point)
+                    continue;
+                if (!isVisible(*mouse_panel, kf.position))
+                    continue;
 
-            const glm::vec2 s_apex = projectToScreen(kf.position);
-
-            if (mouse_in_viewport) {
+                const glm::vec2 s_apex = projectToScreen(*mouse_panel, kf.position);
                 const float dx = mouse_x - s_apex.x;
                 const float dy = mouse_y - s_apex.y;
                 const float dist = std::sqrt(dx * dx + dy * dy);
@@ -735,131 +817,168 @@ namespace lfs::vis::gui {
                     hovered_keyframe = i;
                 }
             }
-
-            const bool selected = controller_.selectedKeyframe() == i;
-            const bool hovered = hovered_keyframe == i;
-            glm::vec4 color = frustum_color;
-            if (selected)
-                color = selected_frustum_color;
-            else if (hovered)
-                color = hovered_frustum_color;
-            const float thickness = selected ? FRUSTUM_THICKNESS * 1.5f : FRUSTUM_THICKNESS;
-
-            const float half_vfov = rendering::focalLengthToVFovRad(kf.focal_length_mm) * 0.5f;
-            const float half_h = std::tan(half_vfov) * FRUSTUM_DEPTH;
-            const float half_w = half_h * SENSOR_ASPECT;
-
-            const glm::mat3 rot_mat = glm::mat3_cast(kf.rotation);
-            const glm::vec3 forward = rendering::cameraForward(rot_mat);
-            const glm::vec3 up = rendering::cameraUp(rot_mat);
-            const glm::vec3 right = rendering::cameraRight(rot_mat);
-
-            const glm::vec3 apex = kf.position;
-            const glm::vec3 base_center = apex + forward * FRUSTUM_DEPTH;
-            const glm::vec3 tl = base_center + up * half_h - right * half_w;
-            const glm::vec3 tr = base_center + up * half_h + right * half_w;
-            const glm::vec3 bl = base_center - up * half_h - right * half_w;
-            const glm::vec3 br = base_center - up * half_h + right * half_w;
-
-            const glm::vec2 s_tl = projectToScreen(tl);
-            const glm::vec2 s_tr = projectToScreen(tr);
-            const glm::vec2 s_bl = projectToScreen(bl);
-            const glm::vec2 s_br = projectToScreen(br);
-
-            line_renderer_.addLine(s_apex, s_tl, color, thickness);
-            line_renderer_.addLine(s_apex, s_tr, color, thickness);
-            line_renderer_.addLine(s_apex, s_bl, color, thickness);
-            line_renderer_.addLine(s_apex, s_br, color, thickness);
-
-            line_renderer_.addLine(s_tl, s_tr, color, thickness);
-            line_renderer_.addLine(s_tr, s_br, color, thickness);
-            line_renderer_.addLine(s_br, s_bl, color, thickness);
-            line_renderer_.addLine(s_bl, s_tl, color, thickness);
-
-            const glm::vec3 up_tip = base_center + up * half_h * 1.3f;
-            const glm::vec2 s_up = projectToScreen(up_tip);
-            line_renderer_.addTriangleFilled(s_up, s_tl, s_tr, color);
         }
 
-        if (viewport_edit_mode_ != SequencerViewportEditMode::None) {
-            if (const auto selected = controller_.selectedKeyframe();
-                selected.has_value() && *selected < timeline.size()) {
-                const auto* const keyframe = timeline.getKeyframe(*selected);
-                if (keyframe && !keyframe->is_loop_point && isVisible(keyframe->position)) {
-                    const glm::vec2 handle_center = projectToScreen(keyframe->position);
-                    const float radius =
-                        viewport_edit_mode_ == SequencerViewportEditMode::Rotate
-                            ? ROTATE_HANDLE_RADIUS
-                            : TRANSLATE_HANDLE_RADIUS;
-                    const glm::vec4 handle_fill = toColor(
-                        lighten(t.palette.primary, viewport_transform_drag_active_ ? 0.2f : 0.08f),
-                        viewport_transform_drag_active_ ? 0.88f : 0.58f);
-                    const glm::vec4 handle_outline = toColor(lighten(t.palette.primary, 0.35f), 0.96f);
+        const auto drawOverlay = [&](const CameraPathPanel& panel) {
+            if (path_points.size() >= 2) {
+                const glm::vec4 path_color = toColor(t.palette.primary, 0.8f);
+                const glm::vec4 sample_color = toColor(t.palette.primary, 0.45f);
+                for (size_t i = 0; i + 1 < path_points.size(); ++i) {
+                    if (!isVisible(panel, path_points[i]) && !isVisible(panel, path_points[i + 1]))
+                        continue;
+                    line_renderer_.addLine(projectToScreen(panel, path_points[i]),
+                                           projectToScreen(panel, path_points[i + 1]),
+                                           path_color, PATH_THICKNESS);
+                }
 
-                    line_renderer_.addCircleFilled(handle_center, radius, handle_fill, 18);
-                    if (viewport_edit_mode_ == SequencerViewportEditMode::Translate) {
-                        line_renderer_.addLine(handle_center + glm::vec2(-radius * 1.5f, 0.0f),
-                                               handle_center + glm::vec2(radius * 1.5f, 0.0f),
-                                               handle_outline, HANDLE_THICKNESS);
-                        line_renderer_.addLine(handle_center + glm::vec2(0.0f, -radius * 1.5f),
-                                               handle_center + glm::vec2(0.0f, radius * 1.5f),
-                                               handle_outline, HANDLE_THICKNESS);
-                    } else {
-                        addCircleOutline(handle_center, radius + 2.0f, handle_outline, HANDLE_THICKNESS);
-                        line_renderer_.addLine(handle_center + glm::vec2(radius * 0.2f, -radius * 1.4f),
-                                               handle_center + glm::vec2(radius * 1.1f, -radius * 0.5f),
-                                               handle_outline, HANDLE_THICKNESS);
-                    }
-                    line_renderer_.addCircleFilled(handle_center, 2.5f, handle_outline, 10);
+                const size_t marker_stride =
+                    std::max<size_t>(path_points.size() / MAX_PATH_SAMPLE_MARKERS, 1);
+                for (size_t i = 0; i < path_points.size(); i += marker_stride) {
+                    if (!isVisible(panel, path_points[i]))
+                        continue;
+                    line_renderer_.addCircleFilled(projectToScreen(panel, path_points[i]),
+                                                   PATH_SAMPLE_RADIUS,
+                                                   sample_color, 10);
                 }
             }
-        }
 
-        if (!controller_.isStopped()) {
-            const auto state = controller_.currentCameraState();
-            if (isVisible(state.position)) {
-                const glm::vec4 playhead_color = toColor(t.palette.error, 1.0f);
-                constexpr float PLAYHEAD_FRUSTUM_DEPTH = 0.20f;
+            for (size_t i = 0; i < timeline.keyframes().size(); ++i) {
+                const auto& kf = timeline.keyframes()[i];
+                if (kf.is_loop_point)
+                    continue;
+                if (!isVisible(panel, kf.position))
+                    continue;
 
-                const float ph_half_vfov = rendering::focalLengthToVFovRad(state.focal_length_mm) * 0.5f;
-                const float ph_half_h = std::tan(ph_half_vfov) * PLAYHEAD_FRUSTUM_DEPTH;
-                const float ph_half_w = ph_half_h * SENSOR_ASPECT;
+                const glm::vec2 s_apex = projectToScreen(panel, kf.position);
+                const bool selected = controller_.selectedKeyframe() == i;
+                const bool hovered = mouse_panel == &panel && hovered_keyframe == i;
+                glm::vec4 color = frustum_color;
+                if (selected)
+                    color = selected_frustum_color;
+                else if (hovered)
+                    color = hovered_frustum_color;
+                const float thickness = selected ? FRUSTUM_THICKNESS * 1.5f : FRUSTUM_THICKNESS;
 
-                const glm::mat3 rot_mat = glm::mat3_cast(state.rotation);
+                const float half_vfov = rendering::focalLengthToVFovRad(kf.focal_length_mm) * 0.5f;
+                const float half_h = std::tan(half_vfov) * FRUSTUM_DEPTH;
+                const float half_w = half_h * SENSOR_ASPECT;
+
+                const glm::mat3 rot_mat = glm::mat3_cast(kf.rotation);
                 const glm::vec3 forward = rendering::cameraForward(rot_mat);
                 const glm::vec3 up = rendering::cameraUp(rot_mat);
                 const glm::vec3 right = rendering::cameraRight(rot_mat);
 
-                const glm::vec3 apex = state.position;
-                const glm::vec3 base_center = apex + forward * PLAYHEAD_FRUSTUM_DEPTH;
-                const glm::vec3 tl = base_center + up * ph_half_h - right * ph_half_w;
-                const glm::vec3 tr = base_center + up * ph_half_h + right * ph_half_w;
-                const glm::vec3 bl = base_center - up * ph_half_h - right * ph_half_w;
-                const glm::vec3 br = base_center - up * ph_half_h + right * ph_half_w;
+                const glm::vec3 apex = kf.position;
+                const glm::vec3 base_center = apex + forward * FRUSTUM_DEPTH;
+                const glm::vec3 tl = base_center + up * half_h - right * half_w;
+                const glm::vec3 tr = base_center + up * half_h + right * half_w;
+                const glm::vec3 bl = base_center - up * half_h - right * half_w;
+                const glm::vec3 br = base_center - up * half_h + right * half_w;
 
-                const glm::vec2 s_apex = projectToScreen(apex);
-                const glm::vec2 s_tl = projectToScreen(tl);
-                const glm::vec2 s_tr = projectToScreen(tr);
-                const glm::vec2 s_bl = projectToScreen(bl);
-                const glm::vec2 s_br = projectToScreen(br);
+                const glm::vec2 s_tl = projectToScreen(panel, tl);
+                const glm::vec2 s_tr = projectToScreen(panel, tr);
+                const glm::vec2 s_bl = projectToScreen(panel, bl);
+                const glm::vec2 s_br = projectToScreen(panel, br);
 
-                line_renderer_.addLine(s_apex, s_tl, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_apex, s_tr, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_apex, s_bl, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_apex, s_br, playhead_color, FRUSTUM_THICKNESS);
+                line_renderer_.addLine(s_apex, s_tl, color, thickness);
+                line_renderer_.addLine(s_apex, s_tr, color, thickness);
+                line_renderer_.addLine(s_apex, s_bl, color, thickness);
+                line_renderer_.addLine(s_apex, s_br, color, thickness);
 
-                line_renderer_.addLine(s_tl, s_tr, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_tr, s_br, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_br, s_bl, playhead_color, FRUSTUM_THICKNESS);
-                line_renderer_.addLine(s_bl, s_tl, playhead_color, FRUSTUM_THICKNESS);
+                line_renderer_.addLine(s_tl, s_tr, color, thickness);
+                line_renderer_.addLine(s_tr, s_br, color, thickness);
+                line_renderer_.addLine(s_br, s_bl, color, thickness);
+                line_renderer_.addLine(s_bl, s_tl, color, thickness);
 
-                const glm::vec3 up_tip = base_center + up * ph_half_h * 1.3f;
-                const glm::vec2 s_up = projectToScreen(up_tip);
-                line_renderer_.addTriangleFilled(s_up, s_tl, s_tr, playhead_color);
+                const glm::vec3 up_tip = base_center + up * half_h * 1.3f;
+                const glm::vec2 s_up = projectToScreen(panel, up_tip);
+                line_renderer_.addTriangleFilled(s_up, s_tl, s_tr, color);
             }
-        }
 
-        line_renderer_.end();
+            if (viewport_edit_mode_ != SequencerViewportEditMode::None) {
+                if (const auto selected = controller_.selectedKeyframe();
+                    selected.has_value() && *selected < timeline.size()) {
+                    const auto* const keyframe = timeline.getKeyframe(*selected);
+                    if (keyframe && !keyframe->is_loop_point && isVisible(panel, keyframe->position)) {
+                        const glm::vec2 handle_center = projectToScreen(panel, keyframe->position);
+                        const float radius =
+                            viewport_edit_mode_ == SequencerViewportEditMode::Rotate
+                                ? ROTATE_HANDLE_RADIUS
+                                : TRANSLATE_HANDLE_RADIUS;
+                        const glm::vec4 handle_fill = toColor(
+                            lighten(t.palette.primary, viewport_transform_drag_active_ ? 0.2f : 0.08f),
+                            viewport_transform_drag_active_ ? 0.88f : 0.58f);
+                        const glm::vec4 handle_outline = toColor(lighten(t.palette.primary, 0.35f), 0.96f);
+
+                        line_renderer_.addCircleFilled(handle_center, radius, handle_fill, 18);
+                        if (viewport_edit_mode_ == SequencerViewportEditMode::Translate) {
+                            line_renderer_.addLine(handle_center + glm::vec2(-radius * 1.5f, 0.0f),
+                                                   handle_center + glm::vec2(radius * 1.5f, 0.0f),
+                                                   handle_outline, HANDLE_THICKNESS);
+                            line_renderer_.addLine(handle_center + glm::vec2(0.0f, -radius * 1.5f),
+                                                   handle_center + glm::vec2(0.0f, radius * 1.5f),
+                                                   handle_outline, HANDLE_THICKNESS);
+                        } else {
+                            addCircleOutline(handle_center, radius + 2.0f, handle_outline, HANDLE_THICKNESS);
+                            line_renderer_.addLine(handle_center + glm::vec2(radius * 0.2f, -radius * 1.4f),
+                                                   handle_center + glm::vec2(radius * 1.1f, -radius * 0.5f),
+                                                   handle_outline, HANDLE_THICKNESS);
+                        }
+                        line_renderer_.addCircleFilled(handle_center, 2.5f, handle_outline, 10);
+                    }
+                }
+            }
+
+            if (!controller_.isStopped()) {
+                const auto state = controller_.currentCameraState();
+                if (isVisible(panel, state.position)) {
+                    const glm::vec4 playhead_color = toColor(t.palette.error, 1.0f);
+                    constexpr float PLAYHEAD_FRUSTUM_DEPTH = 0.20f;
+
+                    const float ph_half_vfov = rendering::focalLengthToVFovRad(state.focal_length_mm) * 0.5f;
+                    const float ph_half_h = std::tan(ph_half_vfov) * PLAYHEAD_FRUSTUM_DEPTH;
+                    const float ph_half_w = ph_half_h * SENSOR_ASPECT;
+
+                    const glm::mat3 rot_mat = glm::mat3_cast(state.rotation);
+                    const glm::vec3 forward = rendering::cameraForward(rot_mat);
+                    const glm::vec3 up = rendering::cameraUp(rot_mat);
+                    const glm::vec3 right = rendering::cameraRight(rot_mat);
+
+                    const glm::vec3 apex = state.position;
+                    const glm::vec3 base_center = apex + forward * PLAYHEAD_FRUSTUM_DEPTH;
+                    const glm::vec3 tl = base_center + up * ph_half_h - right * ph_half_w;
+                    const glm::vec3 tr = base_center + up * ph_half_h + right * ph_half_w;
+                    const glm::vec3 bl = base_center - up * ph_half_h - right * ph_half_w;
+                    const glm::vec3 br = base_center - up * ph_half_h + right * ph_half_w;
+
+                    const glm::vec2 s_apex = projectToScreen(panel, apex);
+                    const glm::vec2 s_tl = projectToScreen(panel, tl);
+                    const glm::vec2 s_tr = projectToScreen(panel, tr);
+                    const glm::vec2 s_bl = projectToScreen(panel, bl);
+                    const glm::vec2 s_br = projectToScreen(panel, br);
+
+                    line_renderer_.addLine(s_apex, s_tl, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_apex, s_tr, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_apex, s_bl, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_apex, s_br, playhead_color, FRUSTUM_THICKNESS);
+
+                    line_renderer_.addLine(s_tl, s_tr, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_tr, s_br, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_br, s_bl, playhead_color, FRUSTUM_THICKNESS);
+                    line_renderer_.addLine(s_bl, s_tl, playhead_color, FRUSTUM_THICKNESS);
+
+                    const glm::vec3 up_tip = base_center + up * ph_half_h * 1.3f;
+                    const glm::vec2 s_up = projectToScreen(panel, up_tip);
+                    line_renderer_.addTriangleFilled(s_up, s_tl, s_tr, playhead_color);
+                }
+            }
+        };
+
+        for (const auto& panel : panels) {
+            line_renderer_.begin(screen_w, screen_h, fb_w, fb_h, panel.clip_rect);
+            drawOverlay(panel);
+            line_renderer_.end();
+        }
 
         const bool overlay_blocks_mouse =
             overlay_->wantsInput() || overlay_->isMouseOverEditOverlay(mouse_x, mouse_y);
@@ -875,11 +994,18 @@ namespace lfs::vis::gui {
             if (!keyframe || keyframe->is_loop_point)
                 return;
 
+            const CameraPathPanel* const active_panel =
+                mouse_panel ? mouse_panel : (panels.empty() ? nullptr : &panels.front());
+            if (!active_panel || !active_panel->valid())
+                return;
+
             endViewportKeyframeEdit();
             controller_.selectKeyframe(keyframe_index);
             if (auto* const sm = viewer_->getSceneManager())
                 sm->clearSelection();
 
+            const glm::mat3 viewport_rotation = active_panel->viewport->getRotationMatrix();
+            const glm::vec3 viewport_translation = active_panel->viewport->getTranslation();
             const glm::vec3 view_pos =
                 glm::transpose(viewport_rotation) * (keyframe->position - viewport_translation);
             viewport_transform_drag_active_ = true;
@@ -892,6 +1018,7 @@ namespace lfs::vis::gui {
             viewport_transform_drag_world_offset_ =
                 viewport_edit_mode_ == SequencerViewportEditMode::Translate
                     ? keyframe->position - worldPointAtDepth(
+                                               *active_panel,
                                                mouse_x, mouse_y, viewport_transform_drag_view_depth_)
                     : glm::vec3(0.0f);
             guiFocusState().want_capture_mouse = true;
@@ -906,8 +1033,21 @@ namespace lfs::vis::gui {
                 selected_id.has_value()
                     ? timeline.getKeyframeById(*selected_id)
                     : nullptr;
+            const CameraPathPanel* active_panel = mouse_panel;
+            if (!active_panel && rm->isIndependentSplitViewActive()) {
+                const SplitViewPanelId focused_panel = rm->getFocusedSplitPanel();
+                for (const auto& panel : panels) {
+                    if (panel.panel_id == focused_panel) {
+                        active_panel = &panel;
+                        break;
+                    }
+                }
+            }
+            if (!active_panel && !panels.empty())
+                active_panel = &panels.front();
             if (!selected_id.has_value() || !keyframe || keyframe->is_loop_point ||
-                viewport_edit_mode_ == SequencerViewportEditMode::None) {
+                viewport_edit_mode_ == SequencerViewportEditMode::None ||
+                !active_panel || !active_panel->valid()) {
                 finalizeViewportTransformDrag(false);
                 return;
             }
@@ -920,7 +1060,7 @@ namespace lfs::vis::gui {
             bool changed = false;
             if (viewport_edit_mode_ == SequencerViewportEditMode::Translate) {
                 const glm::vec3 new_position =
-                    worldPointAtDepth(mouse_x, mouse_y, viewport_transform_drag_view_depth_) +
+                    worldPointAtDepth(*active_panel, mouse_x, mouse_y, viewport_transform_drag_view_depth_) +
                     viewport_transform_drag_world_offset_;
                 changed = controller_.updateKeyframeById(
                     *selected_id,
@@ -930,6 +1070,7 @@ namespace lfs::vis::gui {
             } else if (viewport_edit_mode_ == SequencerViewportEditMode::Rotate) {
                 const glm::vec2 mouse_delta =
                     glm::vec2(mouse_x, mouse_y) - viewport_transform_drag_start_mouse_;
+                const glm::mat3 viewport_rotation = active_panel->viewport->getRotationMatrix();
                 const glm::quat yaw = glm::angleAxis(
                     mouse_delta.x * 0.008f,
                     glm::normalize(rendering::cameraUp(viewport_rotation)));
@@ -953,7 +1094,7 @@ namespace lfs::vis::gui {
             return;
         }
 
-        if (mouse_in_viewport && !mouse_blocked_by_ui && hovered_keyframe.has_value()) {
+        if (mouse_panel && !mouse_blocked_by_ui && hovered_keyframe.has_value()) {
             const auto* const hovered = timeline.getKeyframe(*hovered_keyframe);
             if (hovered && !hovered->is_loop_point) {
                 if (input.mouse_clicked[0]) {
