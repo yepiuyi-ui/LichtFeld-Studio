@@ -1709,6 +1709,7 @@ namespace lfs::vis::gui {
         const std::string& kind = parts[0];
         if (kind == "go_to_camera" && parts.size() >= 2) {
             cmd::GoToCamView{.cam_id = std::stoi(parts[1])}.emit();
+            Blur();
         } else if ((kind == "enable_train" || kind == "disable_train") && parts.size() >= 2) {
             core::NodeId node_id = core::NULL_NODE;
             if (parseNodeId(parts[1], node_id)) {

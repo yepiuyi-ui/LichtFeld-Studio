@@ -1723,6 +1723,8 @@ namespace lfs::vis {
             LOG_ERROR("Camera ID {} not found", event.cam_id);
             return;
         }
+        if (input_router_)
+            input_router_->focusViewportKeyboard();
 
         // Get rotation and translation tensors and ensure they're on CPU
         auto R_tensor = cam_data->R().cpu();
