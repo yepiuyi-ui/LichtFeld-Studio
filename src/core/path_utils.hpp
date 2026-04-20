@@ -17,6 +17,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <shellapi.h>
 #include <windows.h>
 #endif
 
