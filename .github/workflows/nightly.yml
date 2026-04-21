@@ -121,7 +121,7 @@ jobs:
 
   build-windows:
     needs: precheck
-    if:true
+
     runs-on: windows-2022
     outputs:
       artifact_name: ${{ steps.package.outputs.artifact_name }}
@@ -317,7 +317,7 @@ jobs:
     needs:
       - precheck
       - build-windows
-    if:true
+   
     runs-on: ubuntu-latest
     environment: nightly-publish
     permissions:
