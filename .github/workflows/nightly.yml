@@ -20,7 +20,7 @@ env:
 
 jobs:
   precheck:
-    if: github.repository == 'MrNeRF/LichtFeld-Studio'
+    
     runs-on: ubuntu-latest
     permissions:
       actions: read
